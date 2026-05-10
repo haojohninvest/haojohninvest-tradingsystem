@@ -1,0 +1,59 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}重新計算族群背離 - {{ block.super }}{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">首頁</a>
+  &rsaquo; 重新計算族群背離
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 800px; margin: 0 auto;">
+  <div style="background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    
+    <h1 style="margin-bottom: 20px;">⚡ 重新計算族群背離</h1>
+    
+    {% if success %}
+      <div style="background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+        <strong>✓ {{ message }}</strong>
+      </div>
+    {% else %}
+      <div style="background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 4px; margin-bottom: 20px;">
+        <strong>✗ {{ message }}</strong>
+      </div>
+    {% endif %}
+    
+    <div style="margin-bottom: 20px;">
+      <p><strong>最新計算日期：</strong>
+        {% if latest_date %}
+          {{ latest_date }}
+        {% else %}
+          尚未計算
+        {% endif %}
+      </p>
+    </div>
+    
+    {% if command_output %}
+      <div style="margin-bottom: 20px;">
+        <p><strong>計算過程：</strong></p>
+        <pre style="background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 12px; max-height: 300px; overflow-y: auto;">{{ command_output }}</pre>
+      </div>
+    {% endif %}
+    
+    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+      <p style="margin-bottom: 15px;">
+        <a href="{% url 'admin:index' %}" style="color: #417690; text-decoration: underline;">← 回到 Admin 首頁</a>
+      </p>
+      <p style="margin-bottom: 15px;">
+        <a href="{% url 'admin:sectors_stocksector_changelist' %}" style="color: #417690; text-decoration: underline;">→ 查看股票分類</a>
+      </p>
+      <p>
+        <a href="/analysis/divergence/" target="_blank" style="color: #417690; text-decoration: underline;">→ 查看族群背離圖表（新視窗）</a>
+      </p>
+    </div>
+    
+  </div>
+</div>
+{% endblock %}

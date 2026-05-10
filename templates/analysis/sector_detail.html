@@ -1,0 +1,206 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ sector.name }} - 族群詳情{% endblock %}
+
+{% block content %}
+<div class="bg-white rounded-xl shadow-md p-6 mb-8">
+    <!-- 標題列 -->
+    <div class="flex justify-between items-center mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-800">📊 {{ sector.name }} - 族群詳情</h1>
+            <p class="text-sm text-gray-500 mt-1">
+                共 {{ total_stocks }} 支股票（依市值排序）
+            </p>
+        </div>
+        <a href="/analysis/divergence/" class="text-indigo-600 hover:text-indigo-800 font-medium">
+            ← 返回族群背離
+        </a>
+    </div>
+    
+    {% if error %}
+        <p class="text-center text-red-500 text-lg py-10">{{ error }}</p>
+    {% else %}
+        <!-- 日期範圍 -->
+        <div class="mb-4 text-sm text-gray-600">
+            <span class="font-medium">最新交易日：</span>{{ latest_date }}
+            <span class="ml-6 font-medium">偵測範圍：</span>近 20 個交易日
+        </div>
+        
+        <!-- 股票列表表格 -->
+        <div class="overflow-x-auto">
+            <table class="min-w-full border-collapse">
+                <thead>
+                    <tr class="bg-gray-50 border-b border-gray-200">
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">代號</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">名稱</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">市值</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">股價</th>
+                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">漲跌</th>
+                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">上漲 &gt; 7%</th>
+                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">跳空缺口</th>
+                        <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">大量</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-100">
+                    {% for item in stock_data %}
+                    <tr class="hover:bg-gray-50 cursor-pointer" onclick="toggleDetails({{ item.stock.id }})">
+                        <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-indigo-600 hover:text-indigo-800">
+                            {{ item.stock.code }}
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{{ item.stock.name }}</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">
+                            {% if item.market_cap >= 1000000000000 %}
+                                {{ item.market_cap|floatformat:2 }} 兆
+                            {% elif item.market_cap >= 100000000 %}
+                                {{ item.market_cap|floatformat:0 }} 億
+                            {% elif item.market_cap > 0 %}
+                                {{ item.market_cap|floatformat:0 }}
+                            {% else %}
+                                <span class="text-gray-400">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-right">{{ item.close_price|floatformat:1 }}</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-right {% if item.daily_return >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                            {% if item.daily_return >= 0 %}+{% endif %}{{ item.daily_return|floatformat:2 }}%
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center">
+                            {% if item.surge_count > 0 %}
+                                ✓ ({{ item.surge_count }}次)
+                            {% else %}
+                                <span class="text-gray-300">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center">
+                            {% if item.gap_count > 0 %}
+                                ✓ ({{ item.gap_count }}次)
+                            {% else %}
+                                <span class="text-gray-300">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap text-sm text-center">
+                            {% if item.volume_count > 0 %}
+                                ✓ ({{ item.volume_count }}次)
+                            {% else %}
+                                <span class="text-gray-300">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <!-- 展開詳情區域 -->
+                    <tr id="details-{{ item.stock.id }}" class="hidden bg-gray-50">
+                        <td colspan="8" class="px-4 py-3">
+                            <div class="text-sm">
+                                <div class="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <p class="font-medium text-gray-700 mb-2">🔥 上漲 &gt; 7%</p>
+                                        <ul id="surge-list-{{ item.stock.id }}" class="text-xs text-gray-600 space-y-1">
+                                            <li>載入中...</li>
+                                        </ul>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-gray-700 mb-2">📈 跳空缺口</p>
+                                        <ul id="gap-list-{{ item.stock.id }}" class="text-xs text-gray-600 space-y-1">
+                                            <li>載入中...</li>
+                                        </ul>
+                                    </div>
+                                    <div>
+                                        <p class="font-medium text-gray-700 mb-2">💨 大量</p>
+                                        <ul id="volume-list-{{ item.stock.id }}" class="text-xs text-gray-600 space-y-1">
+                                            <li>載入中...</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- 圖例 -->
+        <div class="mt-6 pt-4 border-t border-gray-200">
+            <p class="text-sm text-gray-600">
+                <span class="font-medium">圖例說明：</span>
+                <span class="ml-4">✓ 上漲 &gt; 7%：單日漲幅超過 7%</span>
+                <span class="ml-4">✓ 跳空缺口：今日最低 &gt; 昨日最高</span>
+                <span class="ml-4">✓ 大量：成交量 &gt; 20 日均量 × 2</span>
+            </p>
+            <p class="text-sm text-gray-500 mt-2">
+                點擊股票代號可展開詳細訊號日期
+            </p>
+        </div>
+    {% endif %}
+</div>
+
+<script>
+// 展開/收合詳情
+function toggleDetails(stockId) {
+    const detailsRow = document.getElementById(`details-${stockId}`);
+    const isHidden = detailsRow.classList.contains('hidden');
+    
+    if (isHidden) {
+        // 展開
+        detailsRow.classList.remove('hidden');
+        // 載入詳情資料（如果還沒載入）
+        const surgeList = document.getElementById(`surge-list-${stockId}`);
+        if (surgeList.innerHTML.includes('載入中')) {
+            loadSignalDetails(stockId);
+        }
+    } else {
+        // 收合
+        detailsRow.classList.add('hidden');
+    }
+}
+
+// 載入訊號詳情
+async function loadSignalDetails(stockId) {
+    try {
+        const response = await fetch(`/analysis/api/stock/${stockId}/signals/`);
+        const data = await response.json();
+        
+        // 更新上漲 > 7% 列表
+        const surgeList = document.getElementById(`surge-list-${stockId}`);
+        if (data.surge_dates && data.surge_dates.length > 0) {
+            surgeList.innerHTML = data.surge_dates.map(item => 
+                `<li>${item[0]} (+${item[1]}%)</li>`
+            ).join('');
+        } else {
+            surgeList.innerHTML = '<li>無訊號</li>';
+        }
+        
+        // 更新跳空缺口列表
+        const gapList = document.getElementById(`gap-list-${stockId}`);
+        if (data.gap_dates && data.gap_dates.length > 0) {
+            gapList.innerHTML = data.gap_dates.map(date => 
+                `<li>${date}</li>`
+            ).join('');
+        } else {
+            gapList.innerHTML = '<li>無訊號</li>';
+        }
+        
+        // 更新大量列表
+        const volumeList = document.getElementById(`volume-list-${stockId}`);
+        if (data.volume_dates && data.volume_dates.length > 0) {
+            volumeList.innerHTML = data.volume_dates.map(item => 
+                `<li>${item[0]} (${item[1]}倍)</li>`
+            ).join('');
+        } else {
+            volumeList.innerHTML = '<li>無訊號</li>';
+        }
+    } catch (error) {
+        console.error('載入詳情失敗:', error);
+        document.getElementById(`surge-list-${stockId}`).innerHTML = '<li class="text-red-500">載入失敗</li>';
+    }
+}
+</script>
+
+<style>
+/* 表格樣式優化 */
+table {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+tbody tr:hover {
+    background-color: #f9fafb;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools %}
+  <div style="margin-bottom: 10px;">
+    <a href="/admin/calc-divergence/" class="button" style="background: #79aec8; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; font-weight: bold; display: inline-block; margin-bottom: 10px;">
+      ⚡ 重新計算族群背離
+    </a>
+    <p style="margin-top: 5px; font-size: 12px; color: #666;">
+      修改股票分類後，點擊此按鈕更新族群背離資料
+    </p>
+  </div>
+  {{ block.super }}
+{% endblock %}

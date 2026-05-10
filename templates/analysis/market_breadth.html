@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block title %}Market Breadth - 豪強資本交易系統{% endblock %}
+
+{% block content %}
+<div class="bg-white rounded-xl shadow-md p-6 mb-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-gray-800">📊 市場寬度 (Market Breadth)</h1>
+        <div class="text-sm text-gray-500">
+            計算邏輯：每日收盤價 > 20 日均線的股票比例
+        </div>
+    </div>
+    
+    <!-- 圖表容器 -->
+    <div id="plotly-chart" class="w-full h-[600px] border border-gray-100 rounded-lg">
+        {{ chart_html|safe }}
+    </div>
+</div>
+{% endblock %}
