@@ -38,3 +38,26 @@ class DailyPrice(models.Model):
 
     def __str__(self):
         return f"{self.stock.code} - {self.date}"
+
+class StockSharesHistory(models.Model):
+    """歷史發行股數（按季度記錄）
+    
+    設計說明：
+    - 2016~2025：每年只記錄 Q4 最後一個交易日的股本
+    - 2026 起：每季記錄一次（Q1、Q2、Q3、Q4）
+    - 若當季未公布，自動 fallback 到上一季
+    - 若完全找不到，寫 0（市值計算時會顯示為 0）
+    """
+    stock = models.ForeignKey(Stock, on_delete=models.CASCADE, related_name='shares_history', verbose_name='股票')
+    date = models.DateField('適用日期')  # 該季度最後一個交易日
+    outstanding_shares = models.BigIntegerField('發行股數', null=True, blank=True)
+    source = models.CharField('資料來源', max_length=50, default='finmind')
+    
+    class Meta:
+        verbose_name = '歷史股數'
+        verbose_name_plural = '歷史股數'
+        unique_together = ('stock', 'date')
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.stock.code} - {self.date}: {self.outstanding_shares}"

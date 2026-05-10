@@ -105,7 +105,8 @@ class MarketCrawler:
                 df = pd.read_csv(StringIO(csv_data), header=header_idx)
                 
                 # 用位置重新命名欄位
-                expected_cols = ['code', 'name', 'open', 'high', 'low', 'close', 'change', 'volume', 'trade_value', 'pe', 'pe_ratio', 'roa', 'roe', 'net_value', 'book_value', 'dividend', 'yield']
+                # OTC 官方 CSV 欄位順序：代號,名稱,收盤,漲跌,開盤,最高,最低,成交股數,成交金額,...
+                expected_cols = ['code', 'name', 'close', 'change', 'open', 'high', 'low', 'volume', 'trade_value', 'pe', 'pe_ratio', 'roa', 'roe', 'net_value', 'book_value', 'dividend', 'yield']
                 actual_cols = df.columns.tolist()
                 
                 # 只 rename 實際存在的欄位
