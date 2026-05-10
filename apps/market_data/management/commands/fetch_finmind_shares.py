@@ -1,9 +1,19 @@
+"""
+從 FinMind 抓取歷史發行股數
+
+使用方式:
+    python manage.py fetch_finmind_shares
+    python manage.py fetch_finmind_shares --start_year 2016 --end_year 2025
+    python manage.py fetch_finmind_shares --year 2026 --quarter 1
+"""
+
 import requests
 import pandas as pd
 import time
-from datetime import datetime
-from apps.market_data.models import Stock, StockSharesHistory
 import os
+from datetime import datetime
+from django.core.management.base import BaseCommand
+from apps.market_data.models import Stock, StockSharesHistory
 
 # FinMind API Token (從環境變數讀取)
 FINMIND_TOKEN = os.getenv('FINMIND_TOKEN', '')
@@ -39,19 +49,17 @@ def get_capital_stock_from_finmind(stock_id, year, quarter, token):
                 value = float(capital.iloc[0]['value'])
                 return value
     except Exception as e:
-        print(f"[ERROR] FinMind {stock_id} {year}Q{quarter}: {e}")
+        pass
     return None
 
 def get_shares_with_fallback(stock_id, year, quarter, token):
     """抓股數，帶有 fallback 機制"""
-    # 嘗試抓該季度
     capital = get_capital_stock_from_finmind(stock_id, year, quarter, token)
     
     # Fallback：往回推最多 12 個季度（3 年）
     fallback_count = 0
     q_year, q_quarter = year, quarter
     while capital is None and fallback_count < 12:
-        # 回推到上一季
         q_quarter -= 1
         if q_quarter < 1:
             q_quarter = 4
@@ -60,35 +68,91 @@ def get_shares_with_fallback(stock_id, year, quarter, token):
         fallback_count += 1
     
     if capital and capital > 0:
-        shares = capital / 10  # 股本 / 面額10元 = 股數
+        shares = capital / 10
         return int(shares), f"finmind_{q_year}Q{q_quarter}"
     
-    # 最終 fallback：寫 0
     return 0, "zero_fallback"
 
-def fetch_all_historical_shares(start_year=2016, end_year=2025):
-    """抓取所有股票 2016~end_year 的每年 Q4 股本"""
-    if not FINMIND_TOKEN:
-        print("[ERROR] 請設定 FINMIND_TOKEN 環境變數")
-        return
-    
-    stocks = Stock.objects.all()
-    total = stocks.count()
-    print(f"共 {total} 檔股票需要抓取歷史股數")
-    
-    records_created = 0
-    records_skipped = 0
-    
-    for idx, stock in enumerate(stocks, 1):
-        print(f"[{idx}/{total}] 處理 {stock.code} {stock.name}...", end=" ")
+class Command(BaseCommand):
+    help = '從 FinMind 抓取歷史發行股數'
+
+    def add_arguments(self, parser):
+        parser.add_argument('--start_year', type=int, default=2016, help='開始年份')
+        parser.add_argument('--end_year', type=int, default=2025, help='結束年份')
+        parser.add_argument('--year', type=int, default=None, help='指定年份（用於單季更新）')
+        parser.add_argument('--quarter', type=int, default=None, help='指定季度（1-4）')
+        parser.add_argument('--delay', type=float, default=0.5, help='每檔股票間隔秒數')
+
+    def handle(self, *args, **options):
+        if not FINMIND_TOKEN:
+            self.stdout.write(self.style.ERROR('請設定 FINMIND_TOKEN 環境變數'))
+            return
         
-        for year in range(start_year, end_year + 1):
-            # 每年只抓 Q4
-            shares, source = get_shares_with_fallback(stock.code, year, 4, FINMIND_TOKEN)
+        delay = options['delay']
+        
+        # 如果指定了 year 和 quarter，只抓那一季
+        if options['year'] and options['quarter']:
+            self.fetch_single_quarter(options['year'], options['quarter'], delay)
+        else:
+            # 抓歷史 2016~2025 Q4
+            self.fetch_all_historical(options['start_year'], options['end_year'], delay)
+            # 抓 2026 Q1
+            self.fetch_single_quarter(2026, 1, delay)
+        
+        self.stdout.write(self.style.SUCCESS('\n全部完成！'))
+
+    def fetch_all_historical(self, start_year, end_year, delay):
+        """抓取所有股票 2016~end_year 的每年 Q4 股本"""
+        stocks = Stock.objects.all()
+        total = stocks.count()
+        self.stdout.write(self.style.SUCCESS(f'共 {total} 檔股票需要抓取歷史股數 ({start_year}~{end_year} Q4)'))
+        
+        records_created = 0
+        records_skipped = 0
+        
+        for idx, stock in enumerate(stocks, 1):
+            self.stdout.write(f'[{idx}/{total}] {stock.code} {stock.name}...', ending=' ')
+            
+            for year in range(start_year, end_year + 1):
+                shares, source = get_shares_with_fallback(stock.code, year, 4, FINMIND_TOKEN)
+                
+                if shares > 0:
+                    applicable_date = datetime(year, 12, 31).date()
+                    obj, created = StockSharesHistory.objects.update_or_create(
+                        stock=stock,
+                        date=applicable_date,
+                        defaults={
+                            'outstanding_shares': shares,
+                            'source': source
+                        }
+                    )
+                    if created:
+                        records_created += 1
+                else:
+                    records_skipped += 1
+            
+            self.stdout.write(self.style.SUCCESS('OK'))
+            time.sleep(delay)
+        
+        self.stdout.write(self.style.SUCCESS(f'\n歷史股數完成！新增 {records_created} 筆，跳過 {records_skipped} 筆（股數為 0）'))
+
+    def fetch_single_quarter(self, year, quarter, delay):
+        """抓取指定季度的股本"""
+        stocks = Stock.objects.all()
+        total = stocks.count()
+        self.stdout.write(self.style.SUCCESS(f'\n共 {total} 檔股票需要抓取 {year} Q{quarter} 股數'))
+        
+        records_created = 0
+        
+        for idx, stock in enumerate(stocks, 1):
+            self.stdout.write(f'[{idx}/{total}] {stock.code} {stock.name}...', ending=' ')
+            
+            shares, source = get_shares_with_fallback(stock.code, year, quarter, FINMIND_TOKEN)
             
             if shares > 0:
-                # 用該年 Q4 的最後一天作為適用日期
-                applicable_date = datetime(year, 12, 31).date()
+                # 根據季度決定適用日期
+                month = quarter * 3
+                applicable_date = datetime(year, month, 1).date()
                 
                 obj, created = StockSharesHistory.objects.update_or_create(
                     stock=stock,
@@ -100,64 +164,10 @@ def fetch_all_historical_shares(start_year=2016, end_year=2025):
                 )
                 if created:
                     records_created += 1
+                self.stdout.write(self.style.SUCCESS(f'{shares:,} ({source})'))
             else:
-                records_skipped += 1
+                self.stdout.write(self.style.WARNING('股數為 0'))
+            
+            time.sleep(delay)
         
-        print("OK")
-        
-        # Rate limit 控制：每小時 600 次，每次抓一檔一年約 1 次 request
-        # 抓 2,000 檔 x 10 年 = 20,000 次，需要約 33 小時
-        # 為了安全，每檔之間 sleep 0.5 秒
-        time.sleep(0.5)
-    
-    print(f"\n完成！新增 {records_created} 筆記錄，跳過 {records_skipped} 筆（股數為 0）")
-
-def fetch_2026_quarterly_shares():
-    """抓取 2026 的 Q1 (及後續季度) 股本"""
-    if not FINMIND_TOKEN:
-        print("[ERROR] 請設定 FINMIND_TOKEN 環境變數")
-        return
-    
-    stocks = Stock.objects.all()
-    total = stocks.count()
-    print(f"共 {total} 檔股票需要抓取 2026 Q1 股數")
-    
-    records_created = 0
-    
-    for idx, stock in enumerate(stocks, 1):
-        print(f"[{idx}/{total}] 處理 {stock.code} {stock.name}...", end=" ")
-        
-        # 抓 2026 Q1
-        shares, source = get_shares_with_fallback(stock.code, 2026, 1, FINMIND_TOKEN)
-        
-        if shares > 0:
-            applicable_date = datetime(2026, 3, 31).date()
-            obj, created = StockSharesHistory.objects.update_or_create(
-                stock=stock,
-                date=applicable_date,
-                defaults={
-                    'outstanding_shares': shares,
-                    'source': source
-                }
-            )
-            if created:
-                records_created += 1
-            print(f"股數: {shares:,} ({source})")
-        else:
-            print("股數為 0 (fallback 失敗)")
-        
-        time.sleep(0.5)
-    
-    print(f"\n完成！新增 {records_created} 筆 2026 Q1 記錄")
-
-if __name__ == '__main__':
-    import django
-    django.setup()
-    
-    print("=== 抓取 2016~2025 歷史股數 (Q4) ===")
-    fetch_all_historical_shares(2016, 2025)
-    
-    print("\n=== 抓取 2026 Q1 股數 ===")
-    fetch_2026_quarterly_shares()
-    
-    print("\n全部完成！")
+        self.stdout.write(self.style.SUCCESS(f'\n{year} Q{quarter} 完成！新增 {records_created} 筆'))
