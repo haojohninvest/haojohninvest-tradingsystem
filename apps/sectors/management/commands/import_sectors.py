@@ -6,8 +6,16 @@ from apps.sectors.models import Sector, StockSector
 class Command(BaseCommand):
     help = '從 Excel 檔案匯入股票分類'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--file',
+            type=str,
+            default='產業分類_原始檔.xlsx',
+            help='Excel 檔案路徑 (預設: 專案根目錄下的 產業分類_原始檔.xlsx)'
+        )
+
     def handle(self, *args, **options):
-        file_path = r'C:\Users\user\OneDrive\豪強資本交易系統\產業分類_原始檔.xlsx'
+        file_path = options['file']
         self.stdout.write(f"正在讀取分類檔案: {file_path} ...")
         
         try:
