@@ -45,7 +45,6 @@ def calculate_all_indicators():
         
         # 漲跌率
         daily_return = (close / close.shift(1) - 1) * 100
-        five_day_return = (close / close.shift(5) - 1) * 100
         
         # 偏離率
         ema20_dev = (close - ema20) / ema20 * 100
@@ -65,7 +64,6 @@ def calculate_all_indicators():
                 sma60=round(sma60[date], 2) if pd.notna(sma60[date]) else None,
                 sma120=round(sma120[date], 2) if pd.notna(sma120[date]) else None,
                 daily_return=round(daily_return[date], 2) if pd.notna(daily_return[date]) else None,
-                five_day_return=round(five_day_return[date], 2) if pd.notna(five_day_return[date]) else None,
                 ema20_dev=round(ema20_dev[date], 2) if pd.notna(ema20_dev[date]) else None,
                 ema60_dev=round(ema60_dev[date], 2) if pd.notna(ema60_dev[date]) else None,
                 ema120_dev=round(ema120_dev[date], 2) if pd.notna(ema120_dev[date]) else None,
