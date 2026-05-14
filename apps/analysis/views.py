@@ -8,7 +8,7 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from .models import Indicator, SectorDivergence
-from apps.market_data.models import DailyPrice, Stock
+from apps.market_data.models import DailyPrice, Stock, StockSharesHistory
 from apps.sectors.models import StockSector, Sector
 from .signals import detect_all_signals, get_signal_details
 
