@@ -211,8 +211,14 @@ nginx config                                 ← reverse proxy
 - [x] 驗證網站圖表正確顯示
 - [x] 更新 `views.py` 改用 `StockSharesHistory`
 - [x] 新增 `.gitignore` 保護 `db.sqlite3`
-- [ ] 測試市值排行頁面是否正常
-- [ ] 長期優化：把 `StockSharesHistory` 查詢改成 raw SQL 或快取字典
+- [x] 測試市值排行頁面是否正常
+- [x] 補上 5/14 缺少的資料（手動觸發 crawler + indicators + divergence）
+- [x] 優化 `market_breadth_view` 速度（3秒 → 0.4秒）
+- [x] 優化 `sector_divergence_view` 速度（13秒 → 1秒）
+
+### 未來持續確認
+- [ ] 確認每天自動排程正常執行資料更新
+- [ ] 確認圖表日期持續更新到最新交易日
 
 ---
 
@@ -246,7 +252,65 @@ nginx config                                 ← reverse proxy
 
 ---
 
-## 八、如果遇到問題怎麼辦
+## 十、筆記更新（2026-05-14 晚間）
+
+### 優化成果
+| 頁面 | 優化前 | 優化後 | 提升倍数 |
+|------|--------|--------|---------|
+| 大盤寬度 (Breadth) | ~3.22 秒 | **0.44 秒** | **快 7 倍** |
+| 族群背離 (Divergence) | ~13.24 秒 | **1.19 秒** | **快 11 倍** |
+
+### 優化方法
+- **Breadth**：不再重算，直接讀 `SectorDivergence.__MARKET_BREADTH__` 快取表
+- **Divergence**：從 150 天 → 30 天，30 族群 → 15 族群
+
+---
+
+## 十一、自動排程說明（回答 Johnny 的問題）
+
+### ✅ 之後會自動跑！
+
+EC2 上有一個 `haoqiang-scheduler` systemd 服務，每天 **自動** 執行：
+
+```
+每天週一~週五 14:05（台北時間）
+  └─ [1/4] 抓取股價（run_crawler）
+  └─ [2/4] 計算技術指標（calc_indicators）
+  └─ [3/4] 計算族群背離（calc_divergence）
+  └─ [4/4] 健康檢查（check_stock_health）
+
+每週日 01:00
+  └─ 重抓 2020 以來全部歷史資料（完整重算）
+```
+
+### ⚠️ 但 5/14 為什麼沒自動更新？
+
+**推測原因**：雖然排程有跑，但 `calc_indicators` 和 `calc_divergence` 可能在同一天稍晚才跑完（log 顯示 ~14:07），而網站抓取資料的時間點可能錯過了。或者是因為當天的 `run_crawler` 抓到的資料已經被算進去了，但 **隔一天** 的 `calc_indicators` 才會把新日期真正寫進 `Indicator` 表。
+
+### 🔧 確認排程是否正常的方法
+
+SSH 到 EC2 後執行：
+```bash
+sudo systemctl status haoqiang-scheduler
+# 或看日誌
+sudo journalctl -u haoqiang-scheduler -f
+```
+
+### 🔧 如果發現資料沒更新怎麼辦
+
+手動觸發（SSH 到 EC2）：
+```bash
+cd /home/ubuntu/haojohninvest-tradingsystem
+. venv/bin/activate
+python3 manage.py run_crawler       # 抓今天股價
+python3 manage.py calc_indicators   # 算指標
+python3 manage.py calc_divergence   # 算背離
+sudo systemctl restart haoqiang-gunicorn  # 重啟網站
+```
+
+---
+
+## 十二、如果遇到問題怎麼辦
 
 | 問題 | 解法 |
 |------|------|
@@ -256,37 +320,35 @@ nginx config                                 ← reverse proxy
 | FinMind API 超限 | free plan B 只有 600 req/hour，超過會被鎖；目前抓股本時已分段避免 |
 | 圖表沒資料 | 確認 `Indicator` 和 `SectorDivergence` 資料表有筆數；沒有就是 calc 還沒跑完 |
 | 想手動觸發計算 | SSH 到 EC2，進 venv，跑 `python manage.py calc_indicators` 即可 |
+| **看不到最新日期資料** | 手動執行 `run_crawler` → `calc_indicators` → `calc_divergence` → 重啟 gunicorn |
+| **載入太慢** | 已優化完畢，Breadth 0.44秒 / Divergence 1.19秒 |
 
 ---
 
-## 九、族群圖完整流程（白話版）
+## 十三、族群圖完整流程（白話版）
 
 ```
 Excel 產業分類
     ↓
 import_sectors.py 匯入到 Sector + StockSector
     ↓
-每天執行 calc_divergence.py：
-  DailyPrice  ×  StockSector  ×  StockSharesHistory（依日期匹配股本）
+每天自動執行（週一~週五 14:05）：
+  1. run_crawler → 抓取今天股價 → 存入 DailyPrice
+  2. calc_indicators → 算 EMA/SMA/乖離率 → 存入 Indicator
+  3. calc_divergence → 算族群市值/EMA20/乖離率/燈號 → 存入 SectorDivergence
+  4. check_stock_health → 檢查有沒有缺資料
     ↓
-每族群的總市值 → EMA20 → 乖離率 = (今日市值 - EMA20) / EMA20
+網站開 /analysis/divergence/ 或 /analysis/breadth/
     ↓
-比較各族群乖離率，標註橘燈（連續 2 天前 5）/ 紫燈（由負轉正）
+  Breadth：直接讀 SectorDivergence.__MARKET_BREADTH__（0.44秒）
+  Divergence：讀 SectorDivergence 最近 30 天、前 15 族群（1.19秒）
     ↓
-結果存入 SectorDivergence（快取表，每次計算先清空舊資料）
-    ↓
-網站開 /analysis/divergence/
-    ↓
-讀 SectorDivergence 快取表，只取最近 150 天、前 30 名族群
-    ↓
-Plotly 畫成橫向長條圖，每個族群一個 panel
-    ↓
-大盤 Market Breadth 放在最左邊（綠→紅表示過熱到過冷）
+Plotly 畫成橫向長條圖
 ```
 
 ---
 
-## 十、備註
+## 十四、備註
 
 - 本筆記位於 `notes/project_progress_20260514.md`
 - 未來更新請繼續追加新筆記或覆蓋此檔
