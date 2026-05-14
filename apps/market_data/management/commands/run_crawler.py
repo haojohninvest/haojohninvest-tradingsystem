@@ -33,6 +33,16 @@ class Command(BaseCommand):
             self.stdout.write(f"正在處理 {target_date}...")
             MarketCrawler.run_daily_crawl(target_date)
         
+        else:
+            # ★ 預設行為：抓今天（如果沒給任何參數）
+            target_date = datetime.today().date()
+            # 跳過六日（台股休市）
+            if target_date.weekday() >= 5:
+                self.stdout.write(self.style.WARNING(f"今天是週六/日 ({target_date})，台股休市，跳過爬取。"))
+            else:
+                self.stdout.write(f"正在處理 {target_date}...")
+                MarketCrawler.run_daily_crawl(target_date)
+        
         self.stdout.write(self.style.SUCCESS('爬蟲任務執行完畢！'))
         
         # 執行健康檢查
