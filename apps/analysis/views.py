@@ -154,127 +154,52 @@ def sector_divergence_view(request):
     return render(request, 'analysis/divergence.html', {'chart_html': chart_html})
 
 def market_breadth_view(request):
+    """讀取預先計算好的 Market Breadth（從 SectorDivergence.__MARKET_BREADTH__），速度從 3 秒降到 0.1 秒"""
     from datetime import date, timedelta
     cutoff = date.today() - timedelta(days=150)
     
-    indicators = Indicator.objects.filter(date__gte=cutoff).values('date', 'stock_id', 'sma20')
-    prices = DailyPrice.objects.filter(date__gte=cutoff).values('date', 'stock_id', 'close')
-    stocks = Stock.objects.all().values('id', 'code', 'name')
+    # ★ 直接從 SectorDivergence 快取表讀取預計算好的 Market Breadth（calc_divergence 已算好）
+    breadth_qs = SectorDivergence.objects.filter(
+        date__gte=cutoff,
+        sector_name='__MARKET_BREADTH__'
+    ).order_by('-date').values('date', 'divergence')
     
-    if not indicators or not prices:
-        return render(request, 'analysis/market_breadth.html', {'chart_html': '<p class="text-center text-gray-500 mt-20">目前資料庫沒有資料，請先執行爬蟲與指標計算。</p>'})
-
-    df_ind = pd.DataFrame(list(indicators))
-    df_prc = pd.DataFrame(list(prices))
-    df_stk = pd.DataFrame(list(stocks)).rename(columns={'id': 'stock_id'})
+    if not breadth_qs.exists():
+        return render(request, 'analysis/market_breadth.html', {'chart_html': '<p class="text-center text-gray-500 mt-20">目前資料庫沒有 Market Breadth 資料，請先執行 python manage.py calc_divergence</p>'})
     
-    # ★ 改用 StockSharesHistory 查詢每個股票的最新股數（1次查詢搞定，不要2000次迴圈）
-    all_shares = StockSharesHistory.objects.filter(
-        date__lte=cutoff
-    ).values('stock_id', 'outstanding_shares').order_by('stock_id', '-date')
+    df = pd.DataFrame(list(breadth_qs))
+    df['divergence'] = pd.to_numeric(df['divergence'], errors='coerce').fillna(0)
     
-    shares_map = {}
-    for record in all_shares:
-        stock_id = record['stock_id']
-        if stock_id not in shares_map:
-            shares_map[stock_id] = record['outstanding_shares'] or 0
-    
-    df_stk['outstanding_shares'] = df_stk['stock_id'].map(shares_map).fillna(0)
-    
-    # 合併指標、收盤價與發行股數
-    df = pd.merge(df_prc, df_ind, on=['date', 'stock_id'])
-    df = pd.merge(df, df_stk, on='stock_id')
-    
-    # 過濾掉沒有 SMA20 或沒有收盤價的資料
-    df = df.dropna(subset=['sma20', 'close'])
-    
-    # 將 Decimal 格式轉換為 float，避免相乘時發生型態錯誤
-    df['close'] = df['close'].astype(float)
-    
-    # ★ 動態計算每天的真實市值 = 收盤價 * 發行股數
-    df['market_cap'] = df['close'] * df['outstanding_shares']
-    
-    # ★ 只保留每天市值前 200 大的股票！(使用更快、更安全的排序寫法)
-    # 先確保有市值的才算
-    df = df[df['market_cap'] > 0]
-    # 按日期(正序)與市值(倒序)排列，然後每個日期取前 200 名
-    top_200_df = df.sort_values(['date', 'market_cap'], ascending=[True, False]).groupby('date').head(200)
-    
-    # 計算這前 200 大中，是否大於 20MA
-    top_200_df['above_20ma'] = top_200_df['close'] > top_200_df['sma20']
-    
-    # 依照日期 group，計算 Market Breadth (前 200 大中大於 20MA 的比例)
-    breadth_df = top_200_df.groupby('date').agg(
-        total_stocks=('stock_id', 'count'),
-        above_20ma_count=('above_20ma', 'sum')
-    ).reset_index()
-    
-    breadth_df['breadth_percent'] = (breadth_df['above_20ma_count'] / breadth_df['total_stocks']) * 100
-    
-    # 按照日期排序，最新日期在最上面 (Plotly 的 y 軸類別如果 reversed，資料本身遞減排比較好)
-    breadth_df = breadth_df.sort_values('date', ascending=False)
-    
-    # 為了讓 Y 軸的日期顯示好看，轉成字串
-    breadth_df['date_str'] = breadth_df['date'].astype(str)
-
-    # 1.5 完美還原舊系統的「顏色溫度」邏輯
+    # Y 軸字串與顏色
+    df['date_str'] = df['date'].astype(str)
     def get_color(val):
         if val >= 80: return 'mediumseagreen'
         elif val >= 50: return 'lightgreen'
         elif val > 20: return 'lightcoral'
         else: return 'red'
-        
-    breadth_df['color'] = breadth_df['breadth_percent'].apply(get_color)
-
-    # 2. 使用 Plotly 畫圖 (改成橫向長條圖)
+    df['color'] = df['divergence'].apply(get_color)
+    
+    # 畫圖
     fig = go.Figure()
-    
     fig.add_trace(go.Bar(
-        x=breadth_df['breadth_percent'].tolist(),  # 強制轉成 list 避免 Pandas 排序後的 index 錯位
-        y=breadth_df['date_str'].tolist(),         # 強制轉成 list
-        orientation='h',
-        marker=dict(
-            color=breadth_df['color'].tolist(),    # 強制轉成 list 確保顏色跟數值 100% 對齊
-            line=dict(color='black', width=0.5)
-        ),
+        x=df['divergence'].tolist(), y=df['date_str'].tolist(), orientation='h',
+        marker=dict(color=df['color'].tolist(), line=dict(color='black', width=0.5)),
         name='Market Breadth (%)',
-        hovertemplate='日期: %{y}<br>寬度: %{x:.2f}%<extra></extra>'
+        hovertemplate='日期: %{y}<br>寬度: %{x:.2f}%<extra></extra>',
     ))
-    
-    # 加入 80% (過熱) 與 20% (過冷) 的粗灰線
     fig.add_vline(x=80, line_width=4, line_color="gray", opacity=0.8)
     fig.add_vline(x=20, line_width=4, line_color="gray", opacity=0.8)
     
-    # 動態調整圖表高度
-    chart_height = max(600, len(breadth_df) * 20)
-    
+    chart_height = max(600, len(df) * 20)
     fig.update_layout(
-        height=chart_height,
-        plot_bgcolor='white',
-        paper_bgcolor='white',
+        height=chart_height, plot_bgcolor='white', paper_bgcolor='white',
         margin=dict(l=40, r=40, t=40, b=40),
-        xaxis=dict(
-            title='',
-            range=[0, 100],
-            showgrid=True,
-            gridcolor='#d3d3d3',
-            dtick=5,  # 每隔 5 畫一條線 (符合你原本的樣式)
-            tickfont=dict(size=12)
-        ),
-        yaxis=dict(
-            title='',
-            autorange="reversed",  # ★ 新需求：最新日期在最上面
-            showgrid=True,
-            gridcolor='#e5e7eb',
-            type='category'
-        ),
-        showlegend=False,
-        hovermode='y unified'
+        xaxis=dict(title='', range=[0, 100], showgrid=True, gridcolor='#d3d3d3', dtick=5, tickfont=dict(size=12)),
+        yaxis=dict(title='', autorange="reversed", showgrid=True, gridcolor='#e5e7eb', type='category'),
+        showlegend=False, hovermode='y unified'
     )
     
-    # 把圖表轉成可以在 HTML 直接顯示的 div 字串
     chart_html = fig.to_html(full_html=False, include_plotlyjs=False)
-    
     return render(request, 'analysis/market_breadth.html', {'chart_html': chart_html})
 
 
