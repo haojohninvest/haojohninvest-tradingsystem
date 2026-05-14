@@ -185,13 +185,44 @@ nginx config                                 ← reverse proxy
 
 ## 七、待辦事項（Next Steps）
 
-- [ ] 等 `calc_indicators` 跑完（~2026-05-14 12:00 台北時間預估）
-- [ ] 確認 SSH 恢復連線
-- [ ] 在 EC2 上跑 `python manage.py calc_divergence`
-- [ ] 驗證網站圖表正確顯示
-- [ ] 更新 `auto_pipeline.sh`（本地路徑待確認，或直接在 EC2 上改）
-- [ ] 下次更新時刪除 `Stock.outstanding_shares` 欄位
-- [ ] 考慮是否需要「假日期間不要跑排程」的優化
+- [x] 等 `calc_indicators` 跑完
+- [x] 確認 SSH 恢復連線
+- [x] 在 EC2 上跑 `python manage.py calc_divergence`
+- [x] 驗證網站圖表正確顯示
+- [x] 更新 `views.py` 改用 `StockSharesHistory`
+- [x] 新增 `.gitignore` 保護 `db.sqlite3`
+- [ ] 測試市值排行頁面是否正常
+- [ ] 長期優化：把 `StockSharesHistory` 查詢改成 raw SQL 或快取字典
+
+---
+
+## 七之一、本日問題與教訓紀錄（重要！）
+
+### 問題 1：`db.sqlite3` 被 git 覆蓋導致資料全失
+**原因**：本地 git add -A 時不小心把 `db.sqlite3` stage 進去，EC2 pull 時覆蓋了 449MB 的實際資料庫，變成空白 284KB 檔案。
+**解法**：新增 `.gitignore` 排除 `db.sqlite3` 和 `logs/`。**絕對不能把資料庫放進 git！**
+
+### 問題 2：`market_breadth_view` 載入 430 萬筆導致 OOM
+**原因**：`views.py` 原本用 `DailyPrice.objects.all()` 讀取全部歷史資料，2GB RAM 不夠用，worker 被 kill。
+**解法**：改為 `filter(date__gte=cutoff)` 只讀最近 150 天。
+
+### 問題 3：`StockSharesHistory` 2000 次迴圈查詢導致 504 timeout
+**原因**：對每支股票單獨查一次 `StockSharesHistory.objects.filter(...).first()`，2000 次 DB round-trip 超過 30 秒。
+**解法**：改為一次性查詢全部 `StockSharesHistory`，用 Python dict 映射，速度從 30 秒降到 <1 秒。
+
+### 問題 4：改 views.py 時漏 import `StockSharesHistory`
+**原因**：編輯時只改了使用處，忘了改 import 行。
+**解法**：永遠記得 `from apps.market_data.models import ..., StockSharesHistory`
+
+### 問題 5：系統切換到 plan mode 導致「不回應」
+**原因**：AI 系統有時會自動進入 read-only 的 plan mode，看起來像突然消失。
+**解法**：不是我的錯，是系統限制。通常等一下就會恢復 build mode。
+
+### 總結教訓
+1. **永遠檢查 `.gitignore`** 再執行 `git add -A`
+2. **永遠確認 import 完整性** 再 push
+3. **批量查詢 > 迴圈單筆查詢**（N+1 問題）
+4. **測試時先看 error log** 再猜測問題
 
 ---
 
