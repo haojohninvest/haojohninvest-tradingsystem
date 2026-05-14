@@ -181,17 +181,12 @@ class MarketCrawler:
                 stock = Stock(
                     code=code,
                     name=str(row.get('name', '')).strip(),
-                    market=row.get('market', 'twse'),
-                    outstanding_shares=outstanding_shares  # 新股票直接記錄股數
+                    market=row.get('market', 'twse')
                 )
                 stocks_to_create.append(stock)
                 existing_stocks[code] = stock
             else:
-                # 既有股票，如果今天有股數資料就更新
                 stock = existing_stocks[code]
-                if outstanding_shares and outstanding_shares != stock.outstanding_shares:
-                    stock.outstanding_shares = outstanding_shares
-                    stock.save(update_fields=['outstanding_shares'])
                 
             # 準備 DailyPrice
             if pd.notna(row.get('close')):

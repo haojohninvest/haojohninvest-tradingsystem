@@ -159,7 +159,7 @@ def market_breadth_view(request):
     
     indicators = Indicator.objects.filter(date__gte=cutoff).values('date', 'stock_id', 'sma20')
     prices = DailyPrice.objects.filter(date__gte=cutoff).values('date', 'stock_id', 'close')
-    stocks = Stock.objects.all().values('id', 'outstanding_shares', 'code', 'name')
+    stocks = Stock.objects.all().values('id', 'code', 'name')
     
     if not indicators or not prices:
         return render(request, 'analysis/market_breadth.html', {'chart_html': '<p class="text-center text-gray-500 mt-20">目前資料庫沒有資料，請先執行爬蟲與指標計算。</p>'})
@@ -168,8 +168,15 @@ def market_breadth_view(request):
     df_prc = pd.DataFrame(list(prices))
     df_stk = pd.DataFrame(list(stocks)).rename(columns={'id': 'stock_id'})
     
-    # 確保發行股數是數字，如果沒抓到就當作 0
-    df_stk['outstanding_shares'] = pd.to_numeric(df_stk['outstanding_shares'], errors='coerce').fillna(0)
+    # ★ 改用 StockSharesHistory 查詢每個股票的最新股數
+    shares_map = {}
+    for stock_id in df_stk['stock_id'].unique():
+        shares = StockSharesHistory.objects.filter(
+            stock_id=stock_id, date__lte=cutoff
+        ).order_by('-date').values_list('outstanding_shares', flat=True).first()
+        shares_map[stock_id] = shares or 0
+    
+    df_stk['outstanding_shares'] = df_stk['stock_id'].map(shares_map).fillna(0)
     
     # 合併指標、收盤價與發行股數
     df = pd.merge(df_prc, df_ind, on=['date', 'stock_id'])
@@ -283,8 +290,11 @@ def market_cap_ranking_view(request):
     
     ranking_data = []
     for p in prices:
-        # 發行股數如果沒有抓到，預設給 0
-        shares = p.stock.outstanding_shares or 0
+        # ★ 改用 StockSharesHistory 查詢最新股數
+        shares_record = StockSharesHistory.objects.filter(
+            stock=p.stock, date__lte=latest_date
+        ).order_by('-date').first()
+        shares = shares_record.outstanding_shares if shares_record else 0
         
         # 計算市值 (收盤價 * 股數)
         if p.close and shares > 0:
@@ -379,8 +389,11 @@ def sector_detail_view(request, sector_name):
         latest_daily = DailyPrice.objects.filter(stock=stock, date=latest_date).first()
         
         # 計算市值
-        if latest_daily and stock.outstanding_shares:
-            market_cap = float(latest_daily.close) * float(stock.outstanding_shares)
+        shares_record = StockSharesHistory.objects.filter(
+            stock=stock, date__lte=latest_date
+        ).order_by('-date').first()
+        if latest_daily and shares_record and shares_record.outstanding_shares:
+            market_cap = float(latest_daily.close) * float(shares_record.outstanding_shares)
         else:
             market_cap = 0
         

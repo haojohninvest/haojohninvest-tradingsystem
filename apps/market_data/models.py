@@ -5,7 +5,6 @@ class Stock(models.Model):
     code = models.CharField('股票代號', max_length=10, unique=True)
     name = models.CharField('股票名稱', max_length=50)
     market = models.CharField('市場別', max_length=10, choices=[('twse', '上市'), ('otc', '上櫃')])
-    outstanding_shares = models.BigIntegerField('發行股數', null=True, blank=True)
     market_cap = models.BigIntegerField('市值(元)', null=True, blank=True)
     
     class Meta:
