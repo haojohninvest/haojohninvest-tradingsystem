@@ -154,14 +154,11 @@ def sector_divergence_view(request):
     return render(request, 'analysis/divergence.html', {'chart_html': chart_html})
 
 def market_breadth_view(request):
-    # 1. 從資料庫把指標全部撈出來，只要 date, stock_id, 和 sma20
-    # 我們也需要當日的收盤價來比對，但其實我們在計算 Indicator 的時候，
-    # 也可以直接看 close > sma20。既然我們已經有 sma20，我們把 DailyPrice 拿來 join。
+    from datetime import date, timedelta
+    cutoff = date.today() - timedelta(days=150)
     
-    # 這裡我們使用 pandas 來處理
-    indicators = Indicator.objects.all().values('date', 'stock_id', 'sma20')
-    prices = DailyPrice.objects.all().values('date', 'stock_id', 'close')
-    # 偷偷把股票的發行股數也撈出來
+    indicators = Indicator.objects.filter(date__gte=cutoff).values('date', 'stock_id', 'sma20')
+    prices = DailyPrice.objects.filter(date__gte=cutoff).values('date', 'stock_id', 'close')
     stocks = Stock.objects.all().values('id', 'outstanding_shares', 'code', 'name')
     
     if not indicators or not prices:
