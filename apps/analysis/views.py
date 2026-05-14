@@ -20,16 +20,16 @@ def get_color(val):
 
 def sector_divergence_view(request):
     """極速版族群背離多面板圖表 (讀取預先算好的 SectorDivergence)"""
-    # 1. 先只撈出所有不重複的日期 (最多 150 天，最新日期在最前面)
-    all_dates = list(SectorDivergence.objects.order_by('-date').values_list('date', flat=True).distinct()[:150])
+    # 1. 先只撈出所有不重複的日期 (只取最近 **30 天**，加快載入速度)
+    all_dates = list(SectorDivergence.objects.order_by('-date').values_list('date', flat=True).distinct()[:30])
     if not all_dates:
         return render(request, 'analysis/divergence.html', {'error': '尚未計算族群背離，請先在終端機執行 python manage.py calc_divergence'})
     
     # 不反轉，保持最新日期在最前面 (配合 yaxis autorange="reversed" 會讓最新在最上面)
     latest_date = all_dates[0]
     
-    # 2. 撈出最新一天有資料的族群 (取前 30 名)
-    latest_div = SectorDivergence.objects.filter(date=latest_date).exclude(sector_name='__MARKET_BREADTH__').order_by('-divergence').values('sector_name')[:30]
+    # 2. 撈出最新一天有資料的族群 (取前 **15 名**，減少 panel 數量加快顯示)
+    latest_div = SectorDivergence.objects.filter(date=latest_date).exclude(sector_name='__MARKET_BREADTH__').order_by('-divergence').values('sector_name')[:15]
     sorted_sectors = [d['sector_name'] for d in latest_div]
     
     # 3. 把需要的資料一次撈出來 (只撈這 15 個族群的最近 150 天)
