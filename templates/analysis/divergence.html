@@ -18,9 +18,11 @@
     {% if error %}
         <p class="text-center text-red-500">{{ error }}</p>
     {% else %}
-        <!-- 讓 Plotly 自己控制寬度，允許橫向捲動 -->
-        <div class="w-full overflow-x-auto border border-gray-200 rounded-lg shadow-inner bg-gray-50 custom-scrollbar" style="min-height: 800px;">
-            {{ chart_html|safe }}
+        <!-- 讓 Plotly 自己控制寬度，允許橫向捲動 (捲軸移到上方) -->
+        <div class="w-full overflow-x-auto border border-gray-200 rounded-lg shadow-inner bg-gray-50 custom-scrollbar" style="min-height: 800px; transform: rotateX(180deg);">
+            <div style="transform: rotateX(180deg);">
+                {{ chart_html|safe }}
+            </div>
         </div>
         <p class="text-sm text-gray-500 mt-4 text-center">
             💡 點擊族群名稱可查看該族群成分股詳情
