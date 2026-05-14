@@ -127,19 +127,39 @@
 
 ---
 
-## 四、EC2 當前狀態
+## 四、EC2 最終狀態（2026-05-14 10:35 UTC）
 
 | 項目 | 狀態 |
 |------|------|
 | EC2 Instance | Running（t3.small） |
 | OS | Ubuntu 24.04 |
 | IP | 16.176.34.16 |
-| SSH | 目前連不上（CPU 滿載中） |
-| Django | Running（Gunicorn + Nginx） |
-| DailyPrice 筆數 | 4,357,293 |
-| StockSharesHistory 筆數 | 8,003 |
-| Indicator 筆數 | 0（計算中） |
-| SectorDivergence 筆數 | 0（還沒跑） |
+| Django | Running（Gunicorn 3 workers + Nginx） |
+| **DailyPrice 筆數** | 4,375,185（新增 5/12-13） |
+| **Indicator 筆數** | 183,558（含 5/13 最新） |
+| **SectorDivergence 筆數** | ~9,900（含 5/13 最新） |
+| **StockSharesHistory 筆數** | 8,003 |
+| **網站狀態** | ✅ 正常運作 |
+
+### 網址確認
+- 首頁（跳轉大盤寬度）：http://16.176.34.16/ ✅
+- 族群背離圖：http://16.176.34.16/analysis/divergence/ ✅
+- 大盤寬度圖：http://16.176.34.16/analysis/breadth/ ✅
+- 市值排行榜：http://16.176.34.16/analysis/market-cap-ranking/ ✅
+
+---
+
+## 四之一、為什麼之前資料只到 5/11？
+
+**原因**：EC2 上的 systemd 排程服務 `haoqiang-scheduler` **沒有自動執行**（可能因之前重啟後未自動啟動）。
+
+**解法**：手動執行 `python manage.py run_crawler` 抓取 5/12、5/13 資料，然後重跑 `calc_indicators` + `calc_divergence`。
+
+**長期解決**：
+```bash
+sudo systemctl enable haoqiang-scheduler  # 確保重啟後自動啟動
+sudo systemctl start haoqiang-scheduler     # 立刻啟動
+```
 
 ---
 
