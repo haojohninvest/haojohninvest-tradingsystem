@@ -168,13 +168,16 @@ def market_breadth_view(request):
     df_prc = pd.DataFrame(list(prices))
     df_stk = pd.DataFrame(list(stocks)).rename(columns={'id': 'stock_id'})
     
-    # ★ 改用 StockSharesHistory 查詢每個股票的最新股數
+    # ★ 改用 StockSharesHistory 查詢每個股票的最新股數（1次查詢搞定，不要2000次迴圈）
+    all_shares = StockSharesHistory.objects.filter(
+        date__lte=cutoff
+    ).values('stock_id', 'outstanding_shares').order_by('stock_id', '-date')
+    
     shares_map = {}
-    for stock_id in df_stk['stock_id'].unique():
-        shares = StockSharesHistory.objects.filter(
-            stock_id=stock_id, date__lte=cutoff
-        ).order_by('-date').values_list('outstanding_shares', flat=True).first()
-        shares_map[stock_id] = shares or 0
+    for record in all_shares:
+        stock_id = record['stock_id']
+        if stock_id not in shares_map:
+            shares_map[stock_id] = record['outstanding_shares'] or 0
     
     df_stk['outstanding_shares'] = df_stk['stock_id'].map(shares_map).fillna(0)
     
@@ -289,12 +292,19 @@ def market_cap_ranking_view(request):
     prices = DailyPrice.objects.filter(date=latest_date).select_related('stock')
     
     ranking_data = []
+    # ★ 一次性查出所有需要的最新股數
+    all_latest_shares = StockSharesHistory.objects.filter(
+        date__lte=latest_date
+    ).values('stock_id', 'outstanding_shares').order_by('stock_id', '-date')
+    
+    shares_map = {}
+    for record in all_latest_shares:
+        sid = record['stock_id']
+        if sid not in shares_map:
+            shares_map[sid] = record['outstanding_shares'] or 0
+    
     for p in prices:
-        # ★ 改用 StockSharesHistory 查詢最新股數
-        shares_record = StockSharesHistory.objects.filter(
-            stock=p.stock, date__lte=latest_date
-        ).order_by('-date').first()
-        shares = shares_record.outstanding_shares if shares_record else 0
+        shares = shares_map.get(p.stock.id, 0)
         
         # 計算市值 (收盤價 * 股數)
         if p.close and shares > 0:
