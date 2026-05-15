@@ -78,15 +78,15 @@ class Command(BaseCommand):
         scheduler = BlockingScheduler(timezone='Asia/Taipei')
         scheduler.add_jobstore(DjangoJobStore(), 'default')
         
-        # Daily task (Mon-Fri 14:05)
+        # Daily task (Mon-Fri 15:30) - 改到 15:30，確保證交所 API 已更新
         scheduler.add_job(
             run_daily_tasks,
-            trigger=CronTrigger(day_of_week='mon-fri', hour='14', minute='5'),
+            trigger=CronTrigger(day_of_week='mon-fri', hour='15', minute='30'),
             id='daily_crawl_and_calc',
             name='Daily Stock Crawl & Calculation',
             replace_existing=True
         )
-        logger.info('[OK] Added daily task (Mon-Fri 14:05)')
+        logger.info('[OK] Added daily task (Mon-Fri 15:30)')
         
         # Weekly task (Sun 01:00)
         scheduler.add_job(
