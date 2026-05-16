@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from .models import Indicator, SectorDivergence
+from .models import Indicator, SectorDivergence, MarginAnalysis
 from apps.market_data.models import DailyPrice, Stock, StockSharesHistory
 from apps.sectors.models import StockSector, Sector
 from .signals import detect_all_signals, get_signal_details
@@ -369,6 +369,78 @@ def sector_detail_view(request, sector_name):
     }
     
     return render(request, 'analysis/sector_detail.html', context)
+
+
+def margin_analysis_view(request):
+    """融資分析表格：顯示大盤指數與融資餘額的變化率，含 Excel 條件格式顏色"""
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    # 撈近 180 天資料（大約半年交易日）
+    cutoff = date.today() - timedelta(days=180)
+    qs = MarginAnalysis.objects.filter(date__gte=cutoff).order_by('-date')
+
+    # 如果沒有資料，顯示全部
+    if not qs.exists():
+        qs = MarginAnalysis.objects.all().order_by('-date')[:60]
+
+    def get_change_color(val):
+        if val is None:
+            return ''
+        val_f = float(val)
+        if val_f > 0:
+            return 'change-positive'    # 融資增加（警告紅色）
+        elif val_f < 0:
+            return 'change-negative'    # 融資減少（冷靜綠色）
+        else:
+            return 'change-neutral-light'
+
+    def get_score_change_color(val):
+        if val is None:
+            return ''
+        val_f = float(val)
+        if val_f > 0.05:
+            return 'score-up'           # 強烈上升（深綠）
+        elif val_f > 0.02:
+            return 'score-neutral'       # 溫和上升（黃綠）
+        elif val_f > 0.01:
+            return 'score-neutral'       # 微幅上升（黃）
+        elif val_f < -0.05:
+            return 'score-down'          # 強烈下降（深紅）
+        elif val_f < -0.02:
+            return 'score-neutral'       # 溫和下降
+        else:
+            return ''
+
+    data = []
+    for ma in qs:
+        data.append({
+            'date': ma.date,
+            'index_close': ma.index_close,
+            'margin_balance': ma.margin_balance,
+            'margin_score': ma.margin_score,
+            'change_1d': ma.change_1d,
+            'change_5d': ma.change_5d,
+            'change_10d': ma.change_10d,
+            'change_20d': ma.change_20d,
+            'change_40d': ma.change_40d,
+            'score_change_21d': ma.score_change_21d,
+            # 顏色類別
+            'change_1d_class': get_change_color(ma.change_1d),
+            'change_5d_class': get_change_color(ma.change_5d),
+            'change_10d_class': get_change_color(ma.change_10d),
+            'change_20d_class': get_change_color(ma.change_20d),
+            'change_40d_class': get_change_color(ma.change_40d),
+            'score_change_class': get_score_change_color(ma.score_change_21d),
+        })
+
+    context = {
+        'data': data,
+        'total_days': qs.count(),
+        'start_date': qs.last().date if qs.exists() else None,
+        'end_date': qs.first().date if qs.exists() else None,
+    }
+    return render(request, 'analysis/margin_analysis.html', context)
 
 
 def sector_detail_ajax(request, stock_id):

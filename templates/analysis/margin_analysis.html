@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+
+{% block title %}融資分析 - 豪強資本交易系統{% endblock %}
+
+{% block content %}
+<div class="max-w-[1400px] mx-auto">
+    <div class="bg-white rounded-lg shadow-lg p-6">
+        <!-- 標題 -->
+        <div class="mb-6 border-b pb-4">
+            <h1 class="text-2xl font-bold text-gray-800">融資分析</h1>
+            <p class="text-sm text-gray-500 mt-1">
+                資料期間: {{ start_date|date:"Y/m/d" }} ~ {{ end_date|date:"Y/m/d" }}（共 {{ total_days }} 筆）
+            </p>
+        </div>
+
+        <!-- 表格 -->
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm border-collapse">
+                <!-- 表頭 -->
+                <thead>
+                    <tr class="bg-gray-100 border-b-2 border-gray-300 text-gray-700">
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap sticky left-0 bg-gray-100 z-10">日期</th>
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap">加權指數<br><span class="text-xs font-normal text-gray-500">收盤</span></th>
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap">融資餘額<br><span class="text-xs font-normal text-gray-500">(仟元)</span></th>
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap">融資分數</th>
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap">1日</th>
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap">5日</th>
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap">10日</th>
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap">20日</th>
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap">40日</th>
+                        <th class="px-3 py-3 text-center font-semibold whitespace-nowrap">分數變動<br><span class="text-xs font-normal text-gray-500">21天</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in data %}
+                    <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        <!-- 日期 -->
+                        <td class="px-3 py-2 text-center whitespace-nowrap sticky left-0 bg-white hover:bg-gray-50 z-10 font-mono">
+                            {{ item.date|date:"Y/m/d" }}
+                        </td>
+
+                        <!-- 加權指數 -->
+                        <td class="px-3 py-2 text-right whitespace-nowrap font-mono">
+                            {{ item.index_close }}
+                        </td>
+
+                        <!-- 融資餘額 -->
+                        <td class="px-3 py-2 text-right whitespace-nowrap font-mono">
+                            {{ item.margin_balance|floatformat:0 }}
+                        </td>
+
+                        <!-- 融資分數 -->
+                        <td class="px-3 py-2 text-right whitespace-nowrap font-mono {{ item.score_class }}">
+                            {{ item.margin_score|floatformat:4 }}
+                        </td>
+
+                        <!-- 1日變化 -->
+                        <td class="px-3 py-2 text-right whitespace-nowrap font-mono {{ item.change_1d_class }}">
+                            {% if item.change_1d != None %}
+                                {{ item.change_1d|floatformat:0 }}
+                            {% else %}-
+                            {% endif %}
+                        </td>
+
+                        <!-- 5日變化 -->
+                        <td class="px-3 py-2 text-right whitespace-nowrap font-mono {{ item.change_5d_class }}">
+                            {% if item.change_5d != None %}
+                                {{ item.change_5d|floatformat:0 }}
+                            {% else %}-
+                            {% endif %}
+                        </td>
+
+                        <!-- 10日變化 -->
+                        <td class="px-3 py-2 text-right whitespace-nowrap font-mono {{ item.change_10d_class }}">
+                            {% if item.change_10d != None %}
+                                {{ item.change_10d|floatformat:0 }}
+                            {% else %}-
+                            {% endif %}
+                        </td>
+
+                        <!-- 20日變化 -->
+                        <td class="px-3 py-2 text-right whitespace-nowrap font-mono {{ item.change_20d_class }}">
+                            {% if item.change_20d != None %}
+                                {{ item.change_20d|floatformat:0 }}
+                            {% else %}-
+                            {% endif %}
+                        </td>
+
+                        <!-- 40日變化 -->
+                        <td class="px-3 py-2 text-right whitespace-nowrap font-mono {{ item.change_40d_class }}">
+                            {% if item.change_40d != None %}
+                                {{ item.change_40d|floatformat:0 }}
+                            {% else %}-
+                            {% endif %}
+                        </td>
+
+                        <!-- 分數變動率 -->
+                        <td class="px-3 py-2 text-right whitespace-nowrap font-mono {{ item.score_change_class }}">
+                            {% if item.score_change_21d != None %}
+                                {{ item.score_change_21d|floatformat:4 }}%
+                            {% else %}-
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="10" class="px-3 py-8 text-center text-gray-500">
+                            目前沒有資料，請先執行資料載入。
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 圖例 -->
+        <div class="mt-6 p-4 bg-gray-50 rounded-lg text-sm">
+            <h3 class="font-semibold text-gray-700 mb-2">顏色說明</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="flex items-center gap-2">
+                    <span class="w-4 h-4 rounded bg-red-100 border border-red-300 inline-block"></span>
+                    <span class="text-red-800">融資增加（追價）</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-4 h-4 rounded bg-green-100 border border-green-300 inline-block"></span>
+                    <span class="text-green-800">融資減少（冷靜）</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-4 h-4 rounded bg-green-200 border border-green-400 inline-block"></span>
+                    <span class="text-green-900">分數上升</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-4 h-4 rounded bg-red-200 border border-red-400 inline-block"></span>
+                    <span class="text-red-900">分數下降</span>
+                </div>
+            </div>
+            <p class="mt-2 text-gray-500 text-xs">最新日期在最上方 | 顏色標註依據 Excel 原始條件格式</p>
+        </div>
+    </div>
+</div>
+
+<style>
+/* 顏色類別對應 Excel 條件格式 */
+.score-up {
+    background-color: #c6efce;
+    color: #006100;
+    font-weight: 600;
+}
+.score-down {
+    background-color: #ffc7ce;
+    color: #9c0006;
+    font-weight: 600;
+}
+.score-neutral {
+    background-color: #ffeb9c;
+    color: #9c5700;
+}
+.change-positive {
+    background-color: #ffcccc;
+    color: #7f0000;
+}
+.change-negative {
+    background-color: #ccffcc;
+    color: #003300;
+}
+.change-neutral-light {
+    background-color: #fff2cc;
+    color: #7f6000;
+}
+</style>
+{% endblock %}

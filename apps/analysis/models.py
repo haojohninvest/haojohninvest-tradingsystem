@@ -52,3 +52,28 @@ class SectorDivergence(models.Model):
 
     def __str__(self):
         return f"{self.date} - {self.sector_name} ({self.divergence}%)"
+
+
+class MarginAnalysis(models.Model):
+    """融資分析（大盤指數與融資餘額計算）"""
+    date = models.DateField('日期', unique=True, db_index=True)
+    index_close = models.DecimalField('加權指數收盤', max_digits=12, decimal_places=6, null=True, blank=True)
+    margin_balance = models.DecimalField('融資金額-資餘(仟元)', max_digits=15, decimal_places=2, null=True, blank=True)
+    margin_score = models.DecimalField('融資分數', max_digits=12, decimal_places=6, null=True, blank=True)
+    change_1d = models.DecimalField('融資1日變化', max_digits=15, decimal_places=2, null=True, blank=True)
+    change_5d = models.DecimalField('融資5日變化', max_digits=15, decimal_places=2, null=True, blank=True)
+    change_10d = models.DecimalField('融資10日變化', max_digits=15, decimal_places=2, null=True, blank=True)
+    change_20d = models.DecimalField('融資20日變化', max_digits=15, decimal_places=2, null=True, blank=True)
+    change_40d = models.DecimalField('融資40日變化', max_digits=15, decimal_places=2, null=True, blank=True)
+    score_change_21d = models.DecimalField('融資分數變動率', max_digits=12, decimal_places=6, null=True, blank=True)
+
+    class Meta:
+        verbose_name = '融資分析'
+        verbose_name_plural = '融資分析'
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['-date']),
+        ]
+
+    def __str__(self):
+        return f"{self.date} 融資分數: {self.margin_score}"
