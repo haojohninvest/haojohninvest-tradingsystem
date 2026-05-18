@@ -248,12 +248,12 @@ def market_cap_ranking_view(request):
     # 依照市值由大到小排序
     ranking_data.sort(key=lambda x: x['market_cap'], reverse=True)
     
-    # 只取前 200 名
-    top_200 = ranking_data[:200]
+    # 只取前 300 名
+    top_300 = ranking_data[:300]
     
     context = {
         'target_date': latest_date,
-        'top_200': top_200
+        'top_300': top_300
     }
     
     return render(request, 'analysis/market_cap_ranking.html', context)
