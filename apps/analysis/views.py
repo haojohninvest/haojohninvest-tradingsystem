@@ -204,7 +204,7 @@ def market_breadth_view(request):
 
 
 def market_cap_ranking_view(request):
-    """最新市值排行榜 (前 200 大)"""
+    """最新市值排行榜 (前 300 大)"""
     # 找出資料庫裡有股價的「最新日期」
     latest_price = DailyPrice.objects.order_by('-date').first()
     

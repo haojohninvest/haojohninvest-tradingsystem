@@ -42,8 +42,8 @@
                         </span>
                     </td>
                     <td class="py-2 px-4 text-right text-sm text-gray-700">{{ stock.close|floatformat:2 }}</td>
-                    <!-- 股數除以 1000 變成幾張(千股) -->
-                    <td class="py-2 px-4 text-right text-sm text-gray-500">{{ stock.shares|divisibleby:1000|default:stock.shares }}</td>
+                    <!-- 股數換算成千股 -->
+                    <td class="py-2 px-4 text-right text-sm text-gray-500">{% widthratio stock.shares 1000 1 %}</td>
                     <td class="py-2 px-4 text-right text-sm font-bold text-indigo-700">
                         {% if stock.market_cap_e >= 10000 %}
                             {{ stock.market_cap_e|floatformat:0 }} 億 <span class="text-xs text-gray-400">({% widthratio stock.market_cap_e 10000 1 %} 兆)</span>
