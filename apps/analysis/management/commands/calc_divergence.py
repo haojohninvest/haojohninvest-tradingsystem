@@ -116,7 +116,7 @@ class Command(BaseCommand):
         ema20 = sector_mc.ewm(span=20, adjust=False).mean()
         divergence = ((sector_mc - ema20) / ema20 * 100)
         
-        # ★ 計算大盤 Market Breadth (前 200 大權值股) 使用 EMA20
+        # ★ 計算大盤 Market Breadth (前 300 大權值股) 使用 EMA20
         self.stdout.write("正在計算大盤 Market Breadth (EMA20)...")
         indicators = Indicator.objects.filter(
             date__gte=cutoff_date
@@ -128,11 +128,11 @@ class Command(BaseCommand):
             df_mb = pd.merge(df, df_ind, on=['date', 'stock_id'])
             df_mb = df_mb[df_mb['market_cap'] > 0].dropna(subset=['ema20', 'close'])
             
-            top_200 = df_mb.sort_values(
+            top_300 = df_mb.sort_values(
                 ['date', 'market_cap'], ascending=[True, False]
-            ).groupby('date').head(200)
-            top_200['above_20ma'] = top_200['close'] > top_200['ema20']
-            breadth = top_200.groupby('date').agg(
+            ).groupby('date').head(300)
+            top_300['above_20ma'] = top_300['close'] > top_300['ema20']
+            breadth = top_300.groupby('date').agg(
                 above=('above_20ma', 'sum'),
                 total=('stock_id', 'count')
             ).reset_index()
