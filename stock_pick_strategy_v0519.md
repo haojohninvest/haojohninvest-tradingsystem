@@ -416,14 +416,63 @@ date,stock_code,stock_name,close,...,scenario,market_cap,sector_name,sector_oran
 
 ---
 
+## 項目 17：程式碼撰寫 — ✅ 已完成
+
+### 完成項目
+
+| 子項目 | 狀態 | 檔案 |
+|--------|------|------|
+| Scanner Django Command | ✅ 完成 | `apps/analysis/management/commands/stock_pick_scanner.py` |
+| 獨立測試腳本 | ✅ 完成 | `test_stock_pick_scanner.py` |
+| Signal Pool Bug 修復 | ✅ 完成 | 迭代邏輯、D計算、資料存取 |
+| 語法驗證 | ✅ 通過 | `python -m py_compile` 無錯誤 |
+
+### Scanner 檔案位置
+
+```
+apps/analysis/management/commands/stock_pick_scanner.py
+```
+
+### 使用方式
+
+```bash
+python manage.py stock_pick_scanner \
+    --start_date 2026-01-01 \
+    --end_date 2026-05-08 \
+    --sector_filter \
+    --output_dir .
+```
+
+### 參數說明
+
+| 參數 | 預設值 | 說明 |
+|------|--------|------|
+| `--start_date` | 必填 | 掃描開始日期 (YYYY-MM-DD) |
+| `--end_date` | 必填 | 掃描結束日期 (YYYY-MM-DD) |
+| `--market` | `twse` | 市場別 |
+| `--market_cap` | 150000000000 | 市值門檻 (150億) |
+| `--gap_threshold` | 1.03 | 跳空門檻 |
+| `--surge_threshold` | 7.0 | 長紅門檻% |
+| `--r20_threshold` | 0.9 | R20門檻 |
+| `--sector_filter` | False | 啟用族群橘燈過濾 |
+| `--sector_lookback` | 5 | 族群回溯交易日數 |
+| `--output_dir` | `.` | CSV 輸出目錄 |
+
+### 執行計畫（方案 3：EC2 直接跑）
+
+| 步驟 | 動作 | 說明 |
+|------|------|------|
+| 1 | 上傳程式碼到 EC2 | `scp stock_pick_scanner.py` |
+| 2 | SSH 登入 EC2 | `ssh ubuntu@16.176.34.16` |
+| 3 | 執行掃描 | 2026-01-01 ~ 今天 |
+| 4 | 觀察輸出 | 看 Terminal 即時輸出 |
+| 5 | 下載 CSV 結果 | `scp` 回傳本地 |
+
+---
+
 ## 後續待確認項目（待討論）
 
-**Scanner 部分：**
-- [x] 項目 1~9：全部 ✅ 已確認
-- [x] 項目 16：報表 CSV 欄位 — ✅ 已確認
-- [ ] 項目 17：程式碼撰寫
-
-**Portfolio 模擬部分（暫緩之後討論）：**
+**Portfolio 模模擬部分（暫緩之後討論）：**
 - [ ] 項目 10：Portfolio 進場價格
 - [ ] 項目 11-13：Portfolio 出場邏輯
 - [ ] 項目 14：Portfolio 持倉上限
