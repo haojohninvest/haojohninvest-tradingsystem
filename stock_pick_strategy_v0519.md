@@ -331,12 +331,102 @@ is_orange 的定義與 main branch 的 `calc_divergence.py` 完全一致。
 
 ---
 
+## 項目 16：報表 CSV 欄位 — ✅ 已確認
+
+### 結論
+
+輸出 **2 種 CSV**，欄位設計如下：
+
+### 1. Buy Pool CSV（標準名單）
+
+```
+檔案名稱：buy_pool_YYYYMMDD_YYYYMMDD.csv（起訖日期）
+```
+
+| 欄位名稱 | 資料型別 | 說明 |
+|---------|---------|------|
+| `date` | Date | 判斷日 T |
+| `stock_code` | String | 股票代號 |
+| `stock_name` | String | 股票名稱 |
+| `close` | Float | T 日收盤價 |
+| `volume` | BigInt | T 日成交量（股） |
+| `turnover` | Float | 成交金額（億元）= close × volume / 100000000 |
+| `ema20` | Float | T 日 EMA20 |
+| `ema60` | Float | T 日 EMA60 |
+| `ema120` | Float | T 日 EMA120 |
+| `signal_type` | String | 入池原因：`'gap'` / `'surge'` |
+| `entry_date` | Date | 入池日 A（Signal Pool 入池日） |
+| `d` | Int | 入池後天數（D = T - A） |
+| `r20` | Float | 動態窗口計算的 R20 值 |
+| `scenario` | String | 情境：`'A'` / `'B'` |
+| `market_cap` | BigInt | T 日市值（元） |
+
+### 2. Sector Buy Pool CSV（族群過濾後名單）
+
+```
+檔案名稱：sector_buy_pool_YYYYMMDD_YYYYMMDD.csv（起訖日期）
+```
+
+在 Buy Pool 基礎上，增加族群背離欄位：
+
+| 欄位名稱 | 資料型別 | 說明 |
+|---------|---------|------|
+| ...(以上同 Buy Pool) |  |  |
+| `sector_name` | String | 所屬族群名稱 |
+| `sector_orange_date` | Date | 符合條件的 is_orange = True 日期 |
+| `days_since_orange` | Int | 距離最近橘燈天數（0 = 今天，1 = 昨天） |
+
+**注意**：
+- `sector_orange_date` 是在回溯天數內找到的**最近的**橘燈日期
+- 族群名稱來源：`sectors_stocksector` + `sectors_sector`
+
+### 3. 輸出範例
+
+#### Buy Pool CSV
+
+```csv
+date,stock_code,stock_name,close,volume,turnover,ema20,ema60,ema120,signal_type,entry_date,d,r20,scenario,market_cap
+2026-04-15,2454,聯發科,1790.00,12345,2.21,1750.50,1680.00,1500.00,surge,2026-04-15,0,0.955,A,2840000000000
+2026-04-16,2454,聯發科,1810.00,9876,1.79,1755.00,1685.00,1505.00,gap,2026-04-16,0,0.948,A,2870000000000
+2026-04-15,3008,大立光,3764.00,5678,2.14,3700.00,3650.00,3400.00,surge,2026-04-15,0,0.885,B,1500000000000
+```
+
+#### Sector Buy Pool CSV
+
+```csv
+date,stock_code,stock_name,close,...,scenario,market_cap,sector_name,sector_orange_date,days_since_orange
+2026-04-15,2454,聯發科,1790.00,...,A,2840000000000,IC Design,2026-04-14,1
+2026-04-15,3008,大立光,3764.00,...,B,1500000000000,光學元件,2026-04-15,0
+```
+
+### 4. 同公司多 Entry 的處理
+
+在輸出前，同一天 T、同公司只保留 **A 最新** 的一筆（已在項目 7 確認）。
+
+### 5. 欄位選擇原因
+
+| 欄位 | 原因 |
+|------|------|
+| `date` + `entry_date` + `d` | 追蹤入池時間線 |
+| `r20` | 核心篩選指標，方便回測分析 |
+| `scenario` | A/B 分類，方便分組比較 |
+| `signal_type` | 了解入池原因（Gap/Surge） |
+| `turnover` | 流動性參考 |
+| `sector_name` / `sector_orange_date` | 族群動能驗證 |
+
+---
+
 ## 後續待確認項目（待討論）
 
 **Scanner 部分：**
 - [x] 項目 1~9：全部 ✅ 已確認
-- [ ] 項目 16：報表 CSV 欄位
+- [x] 項目 16：報表 CSV 欄位 ✅ 已確認
 - [ ] 項目 17：程式碼撰寫
+
+**Portfolio 模模擬部分（暫緩之後討論）：**
+- [ ] 項目 10：Portfolio 進場價格
+- [ ] 項目 11-13：Portfolio 出場邏輯
+- [ ] 項目 14：Portfolio 持倉上限
 
 **Portfolio 模擬部分（暫緩之後討論）：**
 - [ ] 項目 10：Portfolio 進場價格
