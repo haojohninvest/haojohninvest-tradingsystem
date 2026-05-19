@@ -420,26 +420,13 @@ date,stock_code,stock_name,close,...,scenario,market_cap,sector_name,sector_oran
 
 **Scanner 部分：**
 - [x] 項目 1~9：全部 ✅ 已確認
-- [x] 項目 16：報表 CSV 欄位 ✅ 已確認
+- [x] 項目 16：報表 CSV 欄位 — ✅ 已確認
 - [ ] 項目 17：程式碼撰寫
-
-**Portfolio 模模擬部分（暫緩之後討論）：**
-- [ ] 項目 10：Portfolio 進場價格
-- [ ] 項目 11-13：Portfolio 出場邏輯
-- [ ] 項目 14：Portfolio 持倉上限
 
 **Portfolio 模擬部分（暫緩之後討論）：**
 - [ ] 項目 10：Portfolio 進場價格
 - [ ] 項目 11-13：Portfolio 出場邏輯
 - [ ] 項目 14：Portfolio 持倉上限
-
-**Portfolio 模模擬部分（暫緩之後討論）：**
-- [ ] 項目 10：Portfolio 進場價格
-- [ ] 項目 11-13：Portfolio 出場邏輯
-- [ ] 項目 14：Portfolio 持倉上限
-- [ ] 項目 6：R20 門檻
-- [ ] 項目 7：Buy Pool 每日重新計算
-- [ ] 項目 8：族群 Filter 回溯天數
 - [ ] 項目 9：族群 Filter is_orange 定義
 - [ ] 項目 10：Portfolio 進場價格
 - [ ] 項目 11-13：Portfolio 出場邏輯
