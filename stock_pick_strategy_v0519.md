@@ -281,13 +281,67 @@ R20 <= 0.9（即 90%，參數可調整）
 
 ---
 
+## 項目 9：族群 Filter is_orange 定義 — ✅ 已確認
+
+### 結論
+
+is_orange 的定義與 main branch 的 `calc_divergence.py` 完全一致。
+
+### 詳細說明
+
+1. **計算來源**：`apps/analysis/management/commands/calc_divergence.py` (main branch)
+2. **計算邏輯**（逐行對照）：
+   ```python
+   # Step 1: 排除 Market Breadth，只對族群排名
+   sectors_only = [c for c in divergence.columns if c != '__MARKET_BREADTH__']
+   
+   # Step 2: 每天每個族群的 divergence（乖離率）由大到小排名
+   rank_by_day = divergence[sectors_only].rank(axis=1, method='min', ascending=False)
+   
+   # Step 3: 取前 5 名
+   is_top5 = (rank_by_day <= 5)
+   
+   # Step 4: 連續 >= n 天才亮燈（n=2）
+   cond_orange = consecutive_ge_n(is_top5[sector], n=2)
+   ```
+3. **`consecutive_ge_n` 函數行為**：
+   - 連續 2 天在前 5 名，從**第 2 天**開始 `is_orange=True`
+   - 掉出前 5 名當天立即變 `False`
+
+### 範例驗證
+
+```
+假設 IC Design 連續幾天的 divergence 排名：
+
+日期        排名    is_top5    run_pos    is_orange
+2026-04-13   3      True        1          False  (第1天進前5)
+2026-04-14   2      True        2          True   (第2天，開始亮橘燈)
+2026-04-15   4      True        3          True   (連續第3天)
+2026-04-16   6      False       1          False  (掉出前5，熄燈)
+2026-04-17   1      True        1          False  (重新進入前5，第1天)
+2026-04-18   2      True        2          True   (連續第2天，再次亮橘燈)
+```
+
+### 重要提醒
+
+**⚠️ `is_orange` 的計算來自 main branch 的 `calc_divergence.py`**
+- `stock-pick-strategy` branch **只讀取** main 的 `analysis_sectordivergence` 資料表
+- **不會修改 main 的程式碼**
+- `stock_pick_strategy_v0519` 的 Scanner 使用 main 已建立好的快取資料表
+
+---
+
 ## 後續待確認項目（待討論）
 
 **Scanner 部分：**
-- [x] 項目 1~8：全部 ✅ 已確認
-- [ ] 項目 15：EMA diff 遺留問題 ✅（上面已解答：已移除）
+- [x] 項目 1~9：全部 ✅ 已確認
 - [ ] 項目 16：報表 CSV 欄位
 - [ ] 項目 17：程式碼撰寫
+
+**Portfolio 模擬部分（暫緩之後討論）：**
+- [ ] 項目 10：Portfolio 進場價格
+- [ ] 項目 11-13：Portfolio 出場邏輯
+- [ ] 項目 14：Portfolio 持倉上限
 
 **Portfolio 模模擬部分（暫緩之後討論）：**
 - [ ] 項目 10：Portfolio 進場價格
