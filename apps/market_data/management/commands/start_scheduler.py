@@ -1,7 +1,7 @@
 """
 Scheduler Service for Haoqiang Capital Trading System
 Automatically executes daily and weekly tasks:
-- Daily (Mon-Fri 13:30): Crawl stock prices, calculate indicators, calculate divergence
+- Daily (Mon-Fri 13:30): Crawl stock prices, calculate indicators, calculate market breadth, calculate divergence
 - Weekly (Sun 01:00): Full recalculation from 2020
 """
 from django.core.management.base import BaseCommand
@@ -20,22 +20,27 @@ def run_daily_tasks():
     
     try:
         # 1. Crawl daily stock prices
-        logger.info('[1/4] Crawling daily stock prices...')
+        logger.info('[1/5] Crawling daily stock prices...')
         call_command('run_crawler')
         logger.info('[OK] Stock crawl completed')
         
         # 2. Calculate technical indicators
-        logger.info('[2/4] Calculating technical indicators...')
+        logger.info('[2/5] Calculating technical indicators...')
         call_command('calc_indicators')
         logger.info('[OK] Technical indicators completed')
         
-        # 3. Calculate sector divergence
-        logger.info('[3/4] Calculating sector divergence...')
+        # 3. Calculate market breadth
+        logger.info('[3/5] Calculating market breadth...')
+        call_command('calc_market_breadth', days=7)
+        logger.info('[OK] Market breadth completed')
+        
+        # 4. Calculate sector divergence
+        logger.info('[4/5] Calculating sector divergence...')
         call_command('calc_divergence')
         logger.info('[OK] Sector divergence completed')
         
-        # 4. Health check
-        logger.info('[4/4] Running stock health check...')
+        # 5. Health check
+        logger.info('[5/5] Running stock health check...')
         call_command('check_stock_health')
         logger.info('[OK] Health check completed')
         

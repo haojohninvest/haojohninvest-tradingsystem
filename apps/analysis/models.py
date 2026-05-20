@@ -52,3 +52,17 @@ class SectorDivergence(models.Model):
 
     def __str__(self):
         return f"{self.date} - {self.sector_name} ({self.divergence}%)"
+
+
+class MarketBreadth(models.Model):
+    """大盤寬度快取 (前300大權值股站上EMA20的比例)"""
+    date = models.DateField('日期', unique=True)
+    breadth_percent = models.DecimalField('大盤寬度(%)', max_digits=6, decimal_places=2)
+
+    class Meta:
+        verbose_name = '大盤寬度'
+        verbose_name_plural = '大盤寬度'
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.date} - Breadth: {self.breadth_percent}%"
