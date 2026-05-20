@@ -168,14 +168,6 @@ class MarketCrawler:
         for code, row in df_all.iterrows():
             code = str(code).strip()
             
-            # 取得發行股數（如果資料中有）
-            outstanding_shares = None
-            if '發行股數' in row:
-                outstanding_shares = pd.to_numeric(row['發行股數'], errors='coerce')
-            elif '本益比' in row and '每股淨值' in row:
-                # 如果可以從其他欄位推算，也可以在这里加入邏輯
-                pass
-            
             # 建立或更新 Stock
             if code not in existing_stocks:
                 stock = Stock(
