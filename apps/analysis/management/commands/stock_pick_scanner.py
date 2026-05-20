@@ -484,18 +484,24 @@ class Command(BaseCommand):
         # 取收盤價
         closes = []
         for idx in range(start_idx, end_idx + 1):
-            date = trading_dates[idx]
-            val = self._get_price(code, date, 'close')
+            dt = trading_dates[idx]
+            val = self._get_price(code, dt, 'close')
             if val:
                 closes.append(val)
 
         if len(closes) == 0:
             return None
 
-        avg = np.mean(closes)
         close_t = self._get_price(code, current_date, 'close')
         if not close_t or close_t == 0:
             return None
+
+        # Strict R20: every close in window must be < close_t
+        for c in closes:
+            if c >= close_t:
+                return None
+
+        avg = np.mean(closes)
 
         return avg / close_t
 
