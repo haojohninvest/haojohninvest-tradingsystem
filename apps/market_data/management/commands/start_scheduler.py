@@ -26,7 +26,7 @@ def run_daily_tasks():
         
         # 2. Calculate technical indicators
         logger.info('[2/5] Calculating technical indicators...')
-        call_command('calc_indicators')
+        call_command('calc_indicators', days=14)
         logger.info('[OK] Technical indicators completed')
         
         # 3. Calculate market breadth

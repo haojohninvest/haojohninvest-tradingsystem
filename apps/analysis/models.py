@@ -16,11 +16,6 @@ class Indicator(models.Model):
     
     # 漲跌率
     daily_return = models.DecimalField('當日漲跌(%)', max_digits=8, decimal_places=2, null=True, blank=True)
-    
-    # 偏離率
-    ema20_dev = models.DecimalField('EMA20偏離率(%)', max_digits=8, decimal_places=2, null=True, blank=True)
-    ema60_dev = models.DecimalField('EMA60偏離率(%)', max_digits=8, decimal_places=2, null=True, blank=True)
-    ema120_dev = models.DecimalField('EMA120偏離率(%)', max_digits=8, decimal_places=2, null=True, blank=True)
 
     class Meta:
         verbose_name = '技術指標'
