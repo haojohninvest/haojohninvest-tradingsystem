@@ -30,6 +30,14 @@ class Command(BaseCommand):
         
         elif options.get('date'):
             target_date = datetime.strptime(options['date'], '%Y-%m-%d').date()
+            # PATCH: 增加週末檢查，避免在週末寫入髒資料
+            if target_date.weekday() >= 5:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"指定日期 {target_date} 為週六/日，台股休市，跳過爬取。"
+                    )
+                )
+                return
             self.stdout.write(f"正在處理 {target_date}...")
             MarketCrawler.run_daily_crawl(target_date)
         

@@ -1,0 +1,31 @@
+Sheet: Stock_List(update from TEJ) | shape=(2016, 1) | cols=['證券代碼']\n      證券代碼
+0  1101 台泥
+1  1102 亞泥
+2  1103 嘉泥\n\nSheet: Update | shape=(1, 1) | cols=['戰略']\n   戰略
+0  市值\n\nSheet: 戰略 | shape=(2016, 2) | cols=['證券代碼', '戰略']\n      證券代碼      戰略
+0  1101 台泥     0.0
+1  1102 亞泥     0.0
+2  1103 嘉泥  1111.0\n\nSheet: 市值 | shape=(2268, 2) | cols=['證券代碼', '市值(百萬元)']\n       證券代碼   市值(百萬元)
+0  2330 台積電  29822508
+1   2317 鴻海   2861699
+2  2454 聯發科   2186250\n\nSheet: 公司分類 | shape=(1736, 26) | cols=['證券代碼', '代號', '主分類', '子分類', '市值']\n       證券代碼      代號               主分類  子分類          市值  new stock pool  Unnamed: 7  Unnamed: 8 主分類名稱 子分類名稱  Unnamed: 11  Unnamed: 12  Unnamed: 13 主分類名稱.1  計數 - 證券代碼 子分類名稱.1  計數 - 證券代碼.1  Unnamed: 18  Unnamed: 19  Unnamed: 20  Unnamed: 21 Unnamed: 22 Unnamed: 23 Unnamed: 24 Unnamed: 25
+0  2330 台積電  2330.0  Advanced Foundry  NaN  29822508.0  NaN        NaN         NaN         NaN   EMS  ASIC          NaN          NaN          NaN     EMS        2.0    (空白)        639.0          NaN          NaN          NaN          NaN          代號          公司         NaN         NaN
+1   2317 鴻海  2317.0               ODM  NaN   2861699.0  NaN        NaN         NaN         NaN    PC   ESD          NaN          NaN          NaN      PC       10.0      總計        639.0          NaN          NaN          NaN          NaN        2388          威盛     2388 威盛        ASIC
+2  2308 台達電  2308.0        Server PSU  NaN   1683208.0  NaN        NaN         NaN         NaN   PCB  IC封裝          NaN          NaN          NaN     PCB       10.0     NaN          NaN          NaN          NaN          NaN          NaN        3443          創意     3443 創意        ASIC\n\nSheet: 工作表3 | shape=(1736, 10) | cols=['代號', '證券代碼', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4']\n       代號        證券代碼  Unnamed: 2  Unnamed: 3  Unnamed: 4  Unnamed: 5      證券代碼.1    代號.1   主分類   子分類
+0  3443.0     3443 創意         NaN         NaN         NaN         NaN     3443 創意  3443.0  ASIC  ASIC
+1  3661.0  3661 世芯-KY         NaN         NaN         NaN         NaN  3661 世芯-KY  3661.0  ASIC  ASIC
+2  3035.0     3035 智原         NaN         NaN         NaN         NaN     3035 智原  3035.0  ASIC  ASIC\n\nSheet: 上市櫃 | shape=(17435, 4) | cols=['證券代碼', '上市櫃', '主分類', '名稱']\n    證券代碼         上市櫃     主分類       名稱
+0   1101   TWSE:1101  Cement  1101 台泥
+1  1101B  TWSE:1101B      NO    1101B
+2   1102   TWSE:1102  Cement  1102 亞泥\n\nSheet: 工作表1 | shape=(2, 4) | cols=['新增', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3']\n        新增 Unnamed: 1 Unnamed: 2 Unnamed: 3
+0  5222 全訊         IC      RF IC         興櫃
+1  6684 安格         IC    高速傳輸 IC         上櫃\n\nSheet: 工作表2 | shape=(4, 5) | cols=['證券代碼', '公司名稱', '英文名稱', '主分類', '子分類']\n       證券代碼  公司名稱          英文名稱 主分類      子分類
+0  300327.0  中穎電子   Sino Wealth  IC      MCU
+1  688595.0  芯海科技  Chipsea tech  IC      MCU
+2       NaN   NaN     StarPower  IC  SiC/GaN\n\nSheet: 戰略公司 | shape=(1745, 3) | cols=['證券代碼', '主分類', '子分類']\n       證券代碼   主分類   子分類
+0  2330 台積電    IC  IC代工
+1  2454 聯發科    IC  IC設計
+2   2317 鴻海  電子產業   組裝廠\n\nSheet: IC設計 | shape=(37, 7) | cols=['證券代碼', '主分類', '子分類', 'IC設計', '負責']\n         證券代碼 主分類   子分類 IC設計  負責  已完成  Unnamed: 6
+0    2454 聯發科  IC  IC設計    v NaN  NaN         NaN
+1     3034 聯詠  IC  DDIC    v NaN  NaN        37.0
+2  6415 矽力-KY  IC  PMIC    v NaN  NaN         NaN\n\n

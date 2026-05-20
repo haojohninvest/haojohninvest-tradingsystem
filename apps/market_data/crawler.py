@@ -5,6 +5,7 @@ from io import StringIO, BytesIO
 import time
 from datetime import datetime
 import logging
+from .validators import PriceValidator
 from .models import Stock, DailyPrice
 
 # 停用 SSL 憑證警告 (因為政府網站有時憑證會異常)
@@ -17,14 +18,15 @@ class MarketCrawler:
     
     @staticmethod
     def fetch_twse(date_obj, max_retries=5, retry_delay=10):
-        """爬取上市股票每日收盤行情"""
+        """爬取上市股票每日收盤行情（修正版：HTTPS + 支援除權息日欄位偏移）"""
         date_str = date_obj.strftime('%Y%m%d')
-        url = f'http://www.twse.com.tw/exchangeReport/MI_INDEX?response=csv&date={date_str}&type=ALL'
+        # PATCH: HTTPS（證交所已強制 HTTPS）
+        url = f'https://www.twse.com.tw/exchangeReport/MI_INDEX?response=csv&date={date_str}&type=ALL'
         
         for attempt in range(max_retries):
             try:
                 headers = {'User-Agent': 'Mozilla/5.0'}
-                r = requests.post(url, headers=headers, timeout=10, verify=False)
+                r = requests.get(url, headers=headers, timeout=10, verify=False)
                 if r.text == '' or len(r.text) < 1000:
                     if attempt < max_retries - 1:
                         logger.warning(f"TWSE 內容過少 ({len(r.text)} bytes)，第 {attempt + 1} 次重試...")
@@ -34,29 +36,56 @@ class MarketCrawler:
                 
                 # 處理原始 CSV 字串
                 lines = r.text.split('\n')
-                # 找到有 17 個欄位且開頭不是 '=' 的行
-                cleaned_lines = [i.translate({ord(c): None for c in ' '}) for i in lines if len(i.split('",')) == 17 and i[0] != '=']
                 
-                if not cleaned_lines:
-                    if attempt < max_retries - 1:
-                        logger.warning(f"TWSE 無有效資料，第 {attempt + 1} 次重試...")
-                        time.sleep(retry_delay)
-                        continue
+                # PATCH: 找到 header 行（包含 '證券代號'）
+                header_idx = None
+                for i, line in enumerate(lines):
+                    if '證券代號' in line or 'code' in line.lower():
+                        header_idx = i
+                        break
+                
+                if header_idx is None:
+                    print(f"⚠️ No header found in TWSE response for {date_str}. Returning empty DataFrame.")
                     return pd.DataFrame()
-                    
-                csv_data = "\n".join(cleaned_lines)
-                df = pd.read_csv(StringIO(csv_data), header=0)
                 
-                # 清理欄位與索引
-                df.rename(columns={'證券代號': 'code', '證券名稱': 'name', '開盤價': 'open', '最高價': 'high', '最低價': 'low', '收盤價': 'close', '成交股數': 'volume', '成交金額': 'trade_value'}, inplace=True)
+                # 使用 header 行作為欄位名，讓 pandas 解析
+                df = pd.read_csv(StringIO(r.text), header=header_idx)
+                
+                # PATCH: 動態找到需要的欄位位置
+                col_map = {}
+                twse_col_names = {
+                    '證券代號': 'code',
+                    '證券名稱': 'name',
+                    '成交量': 'volume',
+                    '成交金額': 'trade_value',
+                    '開盤價': 'open',
+                    '最高價': 'high',
+                    '最低價': 'low',
+                    '收盤價': 'close',
+                }
+                
+                for col in df.columns:
+                    for twse_name, eng_name in twse_col_names.items():
+                        if twse_name in str(col):
+                            col_map[col] = eng_name
+                            break
+                
+                if len(col_map) < 8:
+                    print(f"⚠️ TWSE columns insufficient ({len(col_map)} < 8). Missing: {set(twse_col_names.values()) - set(col_map.values())}")
+                    return pd.DataFrame()
+                
+                df.rename(columns=col_map, inplace=True)
                 df = df.set_index('code')
                 
-                # 把字串數字轉為浮點數，若有 '--' 等符號轉為 NaN
+                # 把字串數字轉為浮點數
                 cols_to_numeric = ['open', 'high', 'low', 'close', 'volume', 'trade_value']
                 for col in cols_to_numeric:
                     if col in df.columns:
                         df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce')
-                        
+                
+                # 移除 NaN 過多的行（可能是權證等無效資料）
+                df = df.dropna(subset=['close', 'volume'], how='any')
+                
                 df['market'] = 'twse'
                 return df
             except Exception as e:
@@ -69,7 +98,7 @@ class MarketCrawler:
 
     @staticmethod
     def fetch_otc(date_obj, max_retries=5, retry_delay=10):
-        """爬取上櫃股票每日收盤行情"""
+        """爬取上櫃股票每日收盤行情（修正版：支援除權息日欄位偏移）"""
         year = date_obj.year - 1911
         date_str = f"{year}/{date_obj.month:02d}/{date_obj.day:02d}"
         url = f'https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php?l=zh-tw&o=csv&d={date_str}&se=AL&s=0,asc,0'
@@ -94,28 +123,37 @@ class MarketCrawler:
                 header_idx = next((i for i, l in enumerate(lines) if '代號' in l or 'code' in l.lower()), -1)
                 
                 if header_idx == -1:
-                    if attempt < max_retries - 1:
-                        logger.warning(f"OTC 找不到 header，第 {attempt + 1} 次重試...")
-                        time.sleep(retry_delay)
-                        continue
+                    print(f"⚠️ OTC header not found for {date_str}. Returning empty DataFrame.")
                     return pd.DataFrame()
                 
-                # 直接指定欄位名稱（避免編碼問題導致 rename 失敗）
+                # PATCH: 直接讓 pandas 用 header 行解析
                 csv_data = content.replace("=", "")
                 df = pd.read_csv(StringIO(csv_data), header=header_idx)
                 
-                # 用位置重新命名欄位
-                # OTC 官方 CSV 欄位順序：代號,名稱,收盤,漲跌,開盤,最高,最低,成交股數,成交金額,...
-                expected_cols = ['code', 'name', 'close', 'change', 'open', 'high', 'low', 'volume', 'trade_value', 'pe', 'pe_ratio', 'roa', 'roe', 'net_value', 'book_value', 'dividend', 'yield']
-                actual_cols = df.columns.tolist()
+                # PATCH: 動態找到需要的欄位位置（不再硬編碼）
+                col_map = {}
+                otc_col_names = {
+                    '代號': 'code',
+                    '名稱': 'name',
+                    '收盤': 'close',
+                    '開盤': 'open',
+                    '最高': 'high',
+                    '最低': 'low',
+                    '成交股數': 'volume',
+                    '成交金額': 'trade_value',
+                }
                 
-                # 只 rename 實際存在的欄位
-                rename_map = {}
-                for i, col_name in enumerate(expected_cols):
-                    if i < len(actual_cols):
-                        rename_map[actual_cols[i]] = col_name
+                for col in df.columns:
+                    for otc_name, eng_name in otc_col_names.items():
+                        if otc_name in str(col):
+                            col_map[col] = eng_name
+                            break
                 
-                df.rename(columns=rename_map, inplace=True)
+                if len(col_map) < 8:
+                    print(f"⚠️ OTC columns insufficient ({len(col_map)} < 8). Missing: {set(otc_col_names.values()) - set(col_map.values())}")
+                    return pd.DataFrame()
+                
+                df.rename(columns=col_map, inplace=True)
                 df = df.set_index('code')
                 
                 # 只保留需要的欄位
@@ -126,6 +164,9 @@ class MarketCrawler:
                 for col in cols_to_numeric:
                     if col in df.columns:
                         df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.strip(), errors='coerce')
+                
+                # PATCH: 移除 NaN 過多的行
+                df = df.dropna(subset=['close', 'volume'], how='any')
                 
                 df['market'] = 'otc'
                 return df
@@ -196,6 +237,20 @@ class MarketCrawler:
                 
             # 準備 DailyPrice
             if pd.notna(row.get('close')):
+                # PATCH: Layer 1 即時檢驗
+                row_dict = {
+                    'open': row.get('open'),
+                    'high': row.get('high'),
+                    'low': row.get('low'),
+                    'close': row.get('close'),
+                    'volume': row.get('volume'),
+                }
+                prev_close = PriceValidator.get_prev_close(code, target_date)
+                is_valid, reason = PriceValidator.validate_row(row_dict, prev_close)
+                if not is_valid:
+                    logger.warning(f"[{target_date}] {code} 驗證失敗: {reason}，跳過寫入")
+                    continue
+                
                 price = DailyPrice(
                     stock=stock,
                     date=target_date,
