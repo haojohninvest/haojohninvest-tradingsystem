@@ -31,13 +31,11 @@ class Command(BaseCommand):
     help = 'Stock Pick Strategy v0519 Scanner'
 
     # ====== 策略參數 (可調) ======
-    DEFAULT_MARKET = 'twse'
-    DEFAULT_EXCLUDE_PATTERNS = ['*', '*-KY', '*-TW']
     DEFAULT_MARKET_CAP_THRESHOLD = 150_000_000_000  # 150億
     DEFAULT_GAP_THRESHOLD = 1.03
     DEFAULT_SURGE_THRESHOLD = 7.0
     DEFAULT_SIGNAL_POOL_MAX_DAYS = 20  # D=0~19
-    DEFAULT_R20_THRESHOLD = 0.9
+    DEFAULT_R20_THRESHOLD = 0.85
     DEFAULT_SECTOR_ORANGE_LOOKBACK = 5  # 交易日
 
     def add_arguments(self, parser):
@@ -52,12 +50,6 @@ class Command(BaseCommand):
             type=str,
             required=True,
             help='結束日期 (YYYY-MM-DD)'
-        )
-        parser.add_argument(
-            '--market',
-            type=str,
-            default=self.DEFAULT_MARKET,
-            help=f'市場別 (預設: {self.DEFAULT_MARKET})'
         )
         parser.add_argument(
             '--market_cap',
@@ -104,7 +96,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.start_date = pd.to_datetime(options['start_date']).date()
         self.end_date = pd.to_datetime(options['end_date']).date()
-        self.market = options['market']
         self.market_cap_threshold = options['market_cap']
         self.gap_threshold = options['gap_threshold']
         self.surge_threshold = options['surge_threshold']
@@ -116,7 +107,6 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"=== Stock Pick Strategy v0519 Scanner ===\n"
             f"日期範圍: {self.start_date} ~ {self.end_date}\n"
-            f"市場: {self.market}\n"
             f"市值門檻: {self.market_cap_threshold:,.0f} 元\n"
             f"跳空門檻: {self.gap_threshold}\n"
             f"長紅門檻: {self.surge_threshold}%\n"
@@ -143,15 +133,10 @@ class Command(BaseCommand):
         self.stdout.write("預載資料中...")
 
         # 股票基本資料
-        stocks = Stock.objects.filter(market=self.market).exclude(
-            name__in=self.DEFAULT_EXCLUDE_PATTERNS
-        )
-        # 簡易排除：名稱含 * 或 -KY 或 -TW
+        stocks = Stock.objects.all()
         self.stock_map = {}
         self.stock_name_map = {}
         for s in stocks:
-            if '*' in s.name or s.name.endswith('-KY') or s.name.endswith('-TW'):
-                continue
             self.stock_map[s.code] = s.id
             self.stock_name_map[s.code] = s.name
 
@@ -199,15 +184,17 @@ class Command(BaseCommand):
         shares_qs = StockSharesHistory.objects.filter(
             stock_id__in=list(self.stock_map.values()),
             date__lte=self.end_date
-        ).order_by('stock_id', '-date').values('stock_id', 'date', 'outstanding_shares')
+        ).order_by('stock_id', 'date').values('stock_id', 'date', 'outstanding_shares')
 
         shares_df = pd.DataFrame(list(shares_qs))
         if not shares_df.empty:
             shares_df['outstanding_shares'] = pd.to_numeric(shares_df['outstanding_shares'], errors='coerce').fillna(0)
-            # 對每個 stock_id 保留最新的
+            shares_df['date'] = pd.to_datetime(shares_df['date']).dt.date
             self.shares_map = {}
             for sid, group in shares_df.groupby('stock_id'):
-                self.shares_map[sid] = group.iloc[0]['outstanding_shares']
+                self.shares_map[sid] = list(
+                    zip(group['date'], group['outstanding_shares'])
+                )
         else:
             self.shares_map = {}
 
@@ -260,7 +247,7 @@ class Command(BaseCommand):
         results = []
         sector_results = []
 
-        # Signal Pool: {code: entry_date}
+        # Signal Pool: {code: [entry1, entry2, ...]}
         signal_pool = {}
 
         # 產生所有交易日列表
@@ -271,14 +258,12 @@ class Command(BaseCommand):
 
         for current_date in trading_dates:
             # 1. 處理 Signal Pool：移除過期的 (D >= 20)
-            to_remove = []
-            for code, info in signal_pool.items():
-                entry_date = info['entry_date']
-                d = self._trading_days_between(entry_date, current_date, trading_dates)
-                if d >= 20:
-                    to_remove.append(code)
-            for code in to_remove:
-                del signal_pool[code]
+            for code, entries in signal_pool.items():
+                signal_pool[code] = [
+                    e for e in entries
+                    if self._trading_days_between(e['entry_date'], current_date, trading_dates) < 20
+                ]
+            signal_pool = {k: v for k, v in signal_pool.items() if v}
 
             # 2. 檢查新的 Gap/Surge，加入 Signal Pool
             new_signals = self._find_signals(current_date, trading_dates)
@@ -286,57 +271,58 @@ class Command(BaseCommand):
                 # 市值檢查
                 if not self._check_market_cap(code, current_date):
                     continue
-                signal_pool[code] = {
+                signal_pool.setdefault(code, []).append({
                     'entry_date': current_date,
                     'signal_type': signal_type,
-                }
+                })
 
             # 3. 對 Signal Pool 內股票檢查情境 A/B + R20
             buy_pool_today = []
-            for code, info in signal_pool.items():
-                entry_date = info['entry_date']
-                signal_type = info['signal_type']
-                d = self._trading_days_between(entry_date, current_date, trading_dates)
+            for code, entries in signal_pool.items():
+                for info in entries:
+                    entry_date = info['entry_date']
+                    signal_type = info['signal_type']
+                    d = self._trading_days_between(entry_date, current_date, trading_dates)
 
-                if d > 19:
-                    continue  # 已過期，但應該上面已移除
+                    if d > 19:
+                        continue  # 已過期，但應該上面已移除
 
-                # 情境 A/B
-                scenario = self._check_scenario(code, current_date)
-                if scenario is None:
-                    continue
+                    # 情境 A/B
+                    scenario = self._check_scenario(code, current_date)
+                    if scenario is None:
+                        continue
 
-                # R20 計算
-                r20 = self._calculate_r20(code, entry_date, current_date, d, trading_dates)
-                if r20 is None or r20 > self.r20_threshold:
-                    continue
+                    # R20 計算
+                    r20 = self._calculate_r20(code, entry_date, current_date, d, trading_dates)
+                    if r20 is None or r20 > self.r20_threshold:
+                        continue
 
-                # 通過！組成 Buy Pool record
-                close = self._get_price(code, current_date, 'close')
-                volume = self._get_price(code, current_date, 'volume')
-                ema20 = self._get_indicator(code, current_date, 'ema20')
-                ema60 = self._get_indicator(code, current_date, 'ema60')
-                ema120 = self._get_indicator(code, current_date, 'ema120')
-                market_cap = self._get_market_cap(code, current_date)
+                    # 通過！組成 Buy Pool record
+                    close = self._get_price(code, current_date, 'close')
+                    volume = self._get_price(code, current_date, 'volume')
+                    ema20 = self._get_indicator(code, current_date, 'ema20')
+                    ema60 = self._get_indicator(code, current_date, 'ema60')
+                    ema120 = self._get_indicator(code, current_date, 'ema120')
+                    market_cap = self._get_market_cap(code, current_date)
 
-                record = {
-                    'date': current_date,
-                    'stock_code': code,
-                    'stock_name': self.stock_name_map.get(code, ''),
-                    'close': close,
-                    'volume': volume,
-                    'turnover': round(close * volume / 100_000_000, 2) if close and volume else 0,
-                    'ema20': ema20,
-                    'ema60': ema60,
-                    'ema120': ema120,
-                    'signal_type': info['signal_type'],
-                    'entry_date': entry_date,
-                    'd': d,
-                    'r20': round(r20, 3) if r20 else None,
-                    'scenario': scenario,
-                    'market_cap': int(market_cap) if market_cap else 0,
-                }
-                buy_pool_today.append(record)
+                    record = {
+                        'date': current_date,
+                        'stock_code': code,
+                        'stock_name': self.stock_name_map.get(code, ''),
+                        'close': close,
+                        'volume': volume,
+                        'turnover': round(close * volume / 100_000_000, 2) if close and volume else 0,
+                        'ema20': ema20,
+                        'ema60': ema60,
+                        'ema120': ema120,
+                        'signal_type': info['signal_type'],
+                        'entry_date': entry_date,
+                        'd': d,
+                        'r20': round(r20, 3) if r20 else None,
+                        'scenario': scenario,
+                        'market_cap': int(market_cap) if market_cap else 0,
+                    }
+                    buy_pool_today.append(record)
 
             # 4. 同公司只保留 A 最新的
             buy_pool_today = self._dedup_entries(buy_pool_today)
@@ -401,6 +387,19 @@ class Command(BaseCommand):
 
         return signals
 
+    def _get_shares(self, stock_id, date):
+        """取得 date 當天或之前最新的發行股數"""
+        records = self.shares_map.get(stock_id)
+        if not records:
+            return 0
+        result = 0
+        for d, shares in records:
+            if d <= date:
+                result = shares
+            else:
+                break
+        return result
+
     def _check_market_cap(self, code, current_date):
         """檢查市值 >= 門檻"""
         stock_id = self.stock_map.get(code)
@@ -408,7 +407,7 @@ class Command(BaseCommand):
             return False
 
         close = self._get_price(code, current_date, 'close')
-        shares = self.shares_map.get(stock_id, 0)
+        shares = self._get_shares(stock_id, current_date)
 
         if not close or not shares:
             return False
@@ -438,7 +437,7 @@ class Command(BaseCommand):
         """取得市值"""
         stock_id = self.stock_map.get(code)
         close = self._get_price(code, date, 'close')
-        shares = self.shares_map.get(stock_id, 0)
+        shares = self._get_shares(stock_id, date)
         if close and shares:
             return close * shares
         return 0
