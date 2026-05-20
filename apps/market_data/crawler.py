@@ -152,6 +152,20 @@ class MarketCrawler:
         if twse_df.empty and otc_df.empty:
             print(f"{target_date} 無交易資料 (可能是假日)。")
             return
+        
+        MIN_TWSE_ROWS = 500
+        MIN_OTC_ROWS = 300
+        
+        if not twse_df.empty and len(twse_df) < MIN_TWSE_ROWS:
+            print(f"警告：TWSE 僅 {len(twse_df)} 筆 (< {MIN_TWSE_ROWS})，疑似不完整，捨棄")
+            twse_df = pd.DataFrame()
+        if not otc_df.empty and len(otc_df) < MIN_OTC_ROWS:
+            print(f"警告：OTC 僅 {len(otc_df)} 筆 (< {MIN_OTC_ROWS})，疑似不完整，捨棄")
+            otc_df = pd.DataFrame()
+        
+        if twse_df.empty and otc_df.empty:
+            print(f"{target_date} 無有效資料 (TWSE 或 OTC 筆數不足)。")
+            return
             
         # 合併上市櫃
         df_all = pd.concat([twse_df, otc_df])
@@ -207,7 +221,8 @@ class MarketCrawler:
         if prices_to_create:
             # 過濾掉找不到對應股票的股價資料 (理論上不會發生)
             prices_to_create = [p for p in prices_to_create if p.stock and p.stock.id]
-            # 使用 ignore_conflicts 避免重複抓取同一天造成錯誤
-            DailyPrice.objects.bulk_create(prices_to_create, ignore_conflicts=True)
+            # 先刪除該日期舊資料，再寫入新資料（每次都完整覆蓋）
+            DailyPrice.objects.filter(date=target_date).delete()
+            DailyPrice.objects.bulk_create(prices_to_create)
             
         print(f"爬取完成！共寫入 {len(prices_to_create)} 筆股價資料。")
