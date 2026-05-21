@@ -48,15 +48,17 @@ class MarketCrawler:
                     print(f"⚠️ No header found in TWSE response for {date_str}. Returning empty DataFrame.")
                     return pd.DataFrame()
                 
-                # 使用 header 行作為欄位名，讓 pandas 解析
-                df = pd.read_csv(StringIO(r.text), header=header_idx)
+                # PATCH: 截取 header 之後的內容，重新組成 CSV，避免 pandas 行數錯位
+                csv_lines = lines[header_idx:]
+                csv_text = '\n'.join(csv_lines)
+                df = pd.read_csv(StringIO(csv_text), header=0)
                 
                 # PATCH: 動態找到需要的欄位位置
                 col_map = {}
                 twse_col_names = {
                     '證券代號': 'code',
                     '證券名稱': 'name',
-                    '成交量': 'volume',
+                    '成交股數': 'volume',
                     '成交金額': 'trade_value',
                     '開盤價': 'open',
                     '最高價': 'high',
