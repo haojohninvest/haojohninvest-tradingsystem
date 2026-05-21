@@ -19,11 +19,10 @@ def calculate_all_indicators(lookback_days=14):
     print(f"計算技術指標 (回溯 {lookback_days} 天, cutoff: {cutoff_date})...")
 
     # PATCH: 只列出需要的股票 ID，避免一次載入全部
-    stock_ids = list(
+    stock_ids = list(set(
         DailyPrice.objects.filter(date__gte=cutoff_date)
         .values_list('stock_id', flat=True)
-        .distinct()
-    )
+    ))
     total_stocks = len(stock_ids)
     print(f"共有 {total_stocks} 支股票需要計算")
 
@@ -89,7 +88,7 @@ def calculate_all_indicators(lookback_days=14):
 
         # PATCH: 每批寫入後立刻 flush
         if indicator_batch:
-            Indicator.objects.bulk_create(indicator_batch, batch_size=5000)
+            Indicator.objects.bulk_create(indicator_batch, batch_size=5000, ignore_conflicts=True)
             total_written += len(indicator_batch)
 
         print(f"已處理 {end_idx}/{total_stocks} 支股票，寫入 {total_written} 筆。")
