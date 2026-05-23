@@ -19,6 +19,7 @@ import argparse
 from datetime import datetime, timedelta
 from django.core.management.base import BaseCommand
 from apps.market_data.crawler import MarketCrawler
+from apps.market_data.models import DailyPrice
 
 PROGRESS_FILE = '.backfill_progress.json'
 
@@ -63,6 +64,8 @@ class Command(BaseCommand):
             self.stdout.write(f'[{completed+1}/{total_days}] 處理 {current}...', ending=' ')
             
             try:
+                # 歷史回填：先刪除當日舊資料，確保舊髒資料不會殘留
+                DailyPrice.objects.filter(date=current).delete()
                 # 執行爬蟲
                 MarketCrawler.run_daily_crawl(current)
                 completed += 1

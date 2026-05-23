@@ -2,7 +2,7 @@
 計算大盤 Market Breadth (前300大權值股站上EMA20的比例)
 
 使用方式:
-    # 初次佈建: 從 2020-01-01 全量計算
+    # 初次佈建: 從 2022-01-01 全量計算
     python manage.py calc_market_breadth --full
 
     # 每日排程: 只更新最近 N 天
@@ -32,7 +32,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--full',
             action='store_true',
-            help='全量重算，從 2020-01-01 至今 (給初次佈建用)'
+            help='全量重算，從 2022-01-01 至今 (給初次佈建用)'
         )
 
     def handle(self, *args, **options):
@@ -45,8 +45,8 @@ class Command(BaseCommand):
             return
 
         if full:
-            cutoff_date = date(2020, 1, 1)
-            self.stdout.write(f"全量重算: 2020-01-01 ~ {latest_date}")
+            cutoff_date = date(2022, 1, 1)
+            self.stdout.write(f"全量重算: 2022-01-01 ~ {latest_date}")
         else:
             cutoff_date = latest_date - timedelta(days=days)
             self.stdout.write(f"更新最近 {days} 天: {cutoff_date} ~ {latest_date}")
