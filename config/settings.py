@@ -24,8 +24,12 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     
+    # 排程
+    'django_apscheduler',
+    # 我們的 apps
     'apps.market_data',
     'apps.analysis',
+    'apps.sectors',
 ]
 
 MIDDLEWARE = [
@@ -68,8 +72,6 @@ DATABASES = {
         'OPTIONS': {
             'timeout': 20,
         }
-    }
-}
     }
 }
 

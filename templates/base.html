@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}豪強資本交易系統{% endblock %}</title>
+    <!-- 引入 Tailwind CSS (CDN 開發版) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 HTMX 實現無刷新互動 -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <!-- 引入 Plotly 畫圖套件 -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang TC', '微軟正黑體', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+    <!-- 頂部導覽列 -->
+    <nav class="bg-indigo-900 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="/" class="text-xl font-bold tracking-wider hover:text-indigo-200 transition">
+                        📈 豪強資本交易系統
+                    </a>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <a href="/analysis/breadth/" class="hover:text-indigo-200 transition">市場寬度</a>
+                    <a href="/analysis/market-cap-ranking/" class="hover:text-indigo-200 transition">市值排行</a>
+                    <a href="/analysis/divergence/" class="hover:text-indigo-200 transition">族群背離</a>
+                    <a href="/analysis/buy-pool/" class="hover:text-indigo-200 transition">Buy Pool</a>
+                    <a href="#" class="hover:text-indigo-200 transition text-gray-400">登入</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要內容區 -->
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        {% block content %}
+        {% endblock %}
+    </main>
+
+    <!-- 頁尾 -->
+    <footer class="bg-white border-t mt-12 py-6">
+        <div class="max-w-7xl mx-auto px-4 text-center text-sm text-gray-500">
+            &copy; 2026 豪強資本交易系統. All rights reserved.
+        </div>
+    </footer>
+</body>
+</html>

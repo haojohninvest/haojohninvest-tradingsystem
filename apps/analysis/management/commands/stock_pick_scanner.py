@@ -8,18 +8,19 @@ Stock Pick Strategy v0519 Scanner
 3. 情境 A/B 判斷
 4. 動態 R20 窗口計算
 5. Buy Pool 每日重新計算
-6. 輸出 Excel (.xlsx)
+6. 輸出 Excel (.xlsx) / DB (BuyPool table)
 
 使用方式:
     python manage.py stock_pick_scanner --start_date 2025-01-02 --end_date 2026-05-08
     python manage.py stock_pick_scanner --start_date 2025-01-02 --end_date 2026-05-08 --stock_filter whitelist_csv --whitelist_csv ./my_stocks.csv
-    python manage.py stock_pick_scanner --start_date 2025-01-02 --end_date 2026-05-08 --market_cap 200000000000
+    python manage.py stock_pick_scanner --start_date 2025-01-02 --end_date 2026-05-08 --market_cap 200000000000 --output-db
 
 輸出:
     buy_pool_YYYYMMDD_YYYYMMDD.xlsx
         Sheet1: Buy Pool (15 欄，原始掃描結果)
         Sheet2: Buy Pool + RS (17 欄，含 ema20_cross_date 和 first_r_date)
         Sheet3: Return Simulation (20 欄，含 sell_date, return_rate, max_drawdown)
+    若使用 --output-db，同時寫入 BuyPool DB table
 """
 
 from django.core.management.base import BaseCommand
@@ -108,6 +109,12 @@ class Command(BaseCommand):
             default='.',
             help='CSV 輸出目錄 (預設: 當前目錄)'
         )
+        parser.add_argument(
+            '--output-db',
+            action='store_true',
+            default=False,
+            help='同時寫入 BuyPool DB table (掃描完成後)'
+        )
 
     def handle(self, *args, **options):
         self.start_date = pd.to_datetime(options['start_date']).date()
@@ -120,6 +127,7 @@ class Command(BaseCommand):
         self.r20_threshold = options['r20_threshold']
         self.r20_hole_threshold = options['r20_hole_threshold']
         self.output_dir = options['output_dir']
+        self.output_db = options['output_db']
 
         if self.stock_filter == 'whitelist_csv' and not self.whitelist_csv_path:
             self.stdout.write(self.style.ERROR(
@@ -151,6 +159,10 @@ class Command(BaseCommand):
 
         # 3. 輸出 Excel
         self._output_csv(results)
+
+        # 4. 輸出 DB (若啟用)
+        if self.output_db:
+            self._output_db(results)
 
         self.stdout.write(self.style.SUCCESS("掃描完成！"))
 
@@ -938,4 +950,72 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"輸出 Buy Pool: {filename} "
             f"(Sheet1: {len(df_bp)} records, Sheet2: {len(df_rs)} records, Sheet3: {len(df_sim)} records)"
+        ))
+
+    def _output_db(self, results):
+        """寫入 BuyPool DB table"""
+        from apps.analysis.models import BuyPool
+        from datetime import datetime
+
+        scan_run_id = f"{self.start_date.strftime('%Y%m%d')}_{self.end_date.strftime('%Y%m%d')}_{datetime.now().strftime('%H%M%S')}"
+
+        # Remove old entries for this date range before writing new ones
+        BuyPool.objects.filter(scan_run_id__startswith=f"{self.start_date.strftime('%Y%m%d')}_{self.end_date.strftime('%Y%m%d')}").delete()
+
+        # Sheet1: Buy Pool
+        results_rs = self._compute_rs(results)
+        results_sim = self._compute_return_simulation(results)
+
+        sim_map = {}
+        if results_sim:
+            for r in results_sim:
+                key = (str(r.get('date')), str(r['stock_code']))
+                sim_map[key] = r
+
+        stock_map = {s.code: s for s in Stock.objects.only('code', 'id')}
+
+        records_to_create = []
+
+        for record in results_rs if results_rs else results:
+            key = (str(record.get('date')), str(record['stock_code']))
+            sim = sim_map.get(key, {})
+
+            stock = stock_map.get(str(record['stock_code']))
+
+            records_to_create.append(BuyPool(
+                stock=stock,
+                date=record.get('date'),
+                stock_code=str(record.get('stock_code', '')),
+                stock_name=str(record.get('stock_name', '')),
+                close=record.get('close'),
+                volume=record.get('volume'),
+                turnover=record.get('turnover'),
+                ema20=record.get('ema20'),
+                ema60=record.get('ema60'),
+                ema120=record.get('ema120'),
+                signal_type=str(record.get('signal_type', '')),
+                entry_date=record.get('entry_date'),
+                d=record.get('d'),
+                r20=record.get('r20'),
+                r20_hole=record.get('r20_hole'),
+                scenario=str(record.get('scenario', '')),
+                market_cap=record.get('market_cap'),
+
+                ema20_cross_date=record.get('ema20_cross_date'),
+                first_r_date=record.get('first_r_date', False),
+
+                sell_date=sim.get('sell_date'),
+                return_rate=sim.get('return_rate'),
+                max_drawdown=sim.get('max_drawdown'),
+                max_return_rate=sim.get('max_return_rate'),
+
+                scan_run_id=scan_run_id,
+            ))
+
+        batch_size = 5000
+        for i in range(0, len(records_to_create), batch_size):
+            BuyPool.objects.bulk_create(records_to_create[i:i + batch_size])
+
+        self.stdout.write(self.style.SUCCESS(
+            f"寫入 BuyPool DB: {len(records_to_create)} records (scan_run_id: {scan_run_id})"
         ))
