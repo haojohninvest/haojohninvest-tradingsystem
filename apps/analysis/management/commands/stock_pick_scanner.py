@@ -952,10 +952,20 @@ class Command(BaseCommand):
             f"(Sheet1: {len(df_bp)} records, Sheet2: {len(df_rs)} records, Sheet3: {len(df_sim)} records)"
         ))
 
+    @staticmethod
+    def _to_date(val):
+        """將 Timestamp / datetime 安全轉成 date，Django bulk_create 才不會報錯"""
+        if val is None:
+            return None
+        if isinstance(val, date):
+            return val
+        if isinstance(val, (datetime, pd.Timestamp)):
+            return val.date()
+        return date.fromisoformat(str(val))
+
     def _output_db(self, results):
         """寫入 BuyPool DB table"""
         from apps.analysis.models import BuyPool
-        from datetime import datetime
 
         scan_run_id = f"{self.start_date.strftime('%Y%m%d')}_{self.end_date.strftime('%Y%m%d')}_{datetime.now().strftime('%H%M%S')}"
 
@@ -984,7 +994,7 @@ class Command(BaseCommand):
 
             records_to_create.append(BuyPool(
                 stock=stock,
-                date=record.get('date'),
+                date=self._to_date(record.get('date')),
                 stock_code=str(record.get('stock_code', '')),
                 stock_name=str(record.get('stock_name', '')),
                 close=record.get('close'),
@@ -994,17 +1004,17 @@ class Command(BaseCommand):
                 ema60=record.get('ema60'),
                 ema120=record.get('ema120'),
                 signal_type=str(record.get('signal_type', '')),
-                entry_date=record.get('entry_date'),
+                entry_date=self._to_date(record.get('entry_date')),
                 d=record.get('d'),
                 r20=record.get('r20'),
                 r20_hole=record.get('r20_hole'),
                 scenario=str(record.get('scenario', '')),
                 market_cap=record.get('market_cap'),
 
-                ema20_cross_date=record.get('ema20_cross_date'),
+                ema20_cross_date=self._to_date(record.get('ema20_cross_date')),
                 first_r_date=record.get('first_r_date', False),
 
-                sell_date=sim.get('sell_date'),
+                sell_date=self._to_date(sim.get('sell_date')),
                 return_rate=sim.get('return_rate'),
                 max_drawdown=sim.get('max_drawdown'),
                 max_return_rate=sim.get('max_return_rate'),
