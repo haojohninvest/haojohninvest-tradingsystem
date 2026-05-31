@@ -63,6 +63,10 @@ def load_price_data_with_market_cap(cutoff_date):
     df_sec = pd.DataFrame(list(sectors))
     df_prc['close'] = df_prc['close'].astype(float)
 
+    if df_sec.empty or 'stock_id' not in df_sec.columns:
+        print(f"  [load_price_data] StockSector 表為空，所有股票標記為「未分類」。")
+        print(f"  [load_price_data] 請先執行: python manage.py import_sectors --file 產業分類_原始檔.xlsx")
+
     # OPTIMIZED: 一次性預載所有 shares，避免 N+1 查詢
     print(f"  [load_price_data] 預載 StockSharesHistory...")
     shares_lookup = _build_shares_lookup()
@@ -72,9 +76,14 @@ def load_price_data_with_market_cap(cutoff_date):
         lambda r: get_shares_for_date(shares_lookup, r['stock_id'], r['date']), axis=1
     )
 
-    df = pd.merge(df_prc, df_sec, on='stock_id', how='left')
-    df['sector__name'] = df['sector__name'].fillna('未分類')
-    df['market_cap'] = df['close'] * df['outstanding_shares']
+    if df_sec.empty or 'stock_id' not in df_sec.columns:
+        df = df_prc.copy()
+        df['sector__name'] = '未分類'
+        df['market_cap'] = df['close'] * df['outstanding_shares']
+    else:
+        df = pd.merge(df_prc, df_sec, on='stock_id', how='left')
+        df['sector__name'] = df['sector__name'].fillna('未分類')
+        df['market_cap'] = df['close'] * df['outstanding_shares']
 
     return df
 
