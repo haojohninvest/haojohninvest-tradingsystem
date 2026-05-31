@@ -965,6 +965,7 @@ class Command(BaseCommand):
 
     def _output_db(self, results):
         """寫入 BuyPool DB table"""
+        from datetime import datetime
         from apps.analysis.models import BuyPool
 
         scan_run_id = f"{self.start_date.strftime('%Y%m%d')}_{self.end_date.strftime('%Y%m%d')}_{datetime.now().strftime('%H%M%S')}"
