@@ -961,7 +961,10 @@ class Command(BaseCommand):
             return val
         if isinstance(val, (datetime, pd.Timestamp)):
             return val.date()
-        return date.fromisoformat(str(val))
+        s = str(val)
+        if s in ('', 'nan', 'None', 'NaT'):
+            return None
+        return date.fromisoformat(s)
 
     def _output_db(self, results):
         """寫入 BuyPool DB table"""
