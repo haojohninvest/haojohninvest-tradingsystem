@@ -25,7 +25,7 @@ Stock Pick Strategy v0519 Scanner
 
 from django.core.management.base import BaseCommand
 from django.db.models import Max
-from datetime import timedelta, date
+from datetime import timedelta, date, datetime
 import pandas as pd
 import numpy as np
 import os
