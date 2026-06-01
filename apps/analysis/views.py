@@ -369,7 +369,7 @@ def buy_pool_view(request):
     sort_by = request.GET.get('sort', '-date')
     page = request.GET.get('page', 1)
 
-    qs = BuyPool.objects.select_related('stock')
+    qs = BuyPool.objects.select_related('stock__sector_mapping__sector')
 
     # Deduplicate: per (date, stock_code), keep only the latest id
     from django.db.models import Max
@@ -406,6 +406,31 @@ def buy_pool_view(request):
     paginator = Paginator(qs, 50)
     page_obj = paginator.get_page(page)
 
+    # Build top-5 sector lookup for current page dates
+    page_dates = {item.date for item in page_obj}
+    if page_dates:
+        date_to_top5_sectors = {}
+        for d in page_dates:
+            top5 = SectorDivergence.objects.filter(date=d).order_by('-divergence')[:5]
+            date_to_top5_sectors[d] = {r.sector_name for r in top5}
+    else:
+        date_to_top5_sectors = {}
+
+    # Build dicts for template (no underscore prefix)
+    sector_names = {}
+    is_sector_top5 = {}
+    for item in page_obj:
+        sector_name = '-'
+        try:
+            sector_name = item.stock.sector_mapping.sector.name or '-'
+        except Exception:
+            pass
+        sector_names[item.id] = sector_name
+        is_sector_top5[item.id] = (
+            item.date in date_to_top5_sectors
+            and sector_name in date_to_top5_sectors[item.date]
+        )
+
     # 統計摘要
     total_count = paginator.count
     latest_date = BuyPool.objects.order_by('-date').values_list('date', flat=True).first()
@@ -423,6 +448,8 @@ def buy_pool_view(request):
         'first_r_date_filter': first_r_date_filter,
         'market_cap_min_str': market_cap_min_str,
         'sort_by': sort_by,
+        'sector_names': sector_names,
+        'is_sector_top5': is_sector_top5,
     }
 
     return render(request, 'analysis/buy_pool.html', context)

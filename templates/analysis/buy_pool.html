@@ -91,11 +91,12 @@
                     <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">賣出日</th>
                     <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">報酬率</th>
                     <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">最大回撤</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">族群</th>
                 </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-100">
                 {% for item in page_obj %}
-                <tr class="hover:bg-indigo-50 transition duration-150">
+                <tr class="{% if is_sector_top5|dictget:item.id %}{% else %}hover:bg-indigo-50{% endif %} transition duration-150" {% if is_sector_top5|dictget:item.id %}style="background-color: #ffedd5;"{% endif %}>
                     <td class="px-3 py-2 whitespace-nowrap text-gray-900">{{ item.date|date:"Y-m-d" }}</td>
                     <td class="px-3 py-2 whitespace-nowrap font-medium text-indigo-600">{{ item.stock_code }}</td>
                     <td class="px-3 py-2 whitespace-nowrap text-gray-900">{{ item.stock_name }}</td>
@@ -135,6 +136,9 @@
                     </td>
                     <td class="px-3 py-2 whitespace-nowrap text-right font-mono text-xs text-red-500">
                         {{ item.max_drawdown|floatformat:2|default:"-" }}%
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center text-xs text-gray-600">
+                        {{ sector_names|dictget:item.id }}
                     </td>
                 </tr>
                 {% endfor %}

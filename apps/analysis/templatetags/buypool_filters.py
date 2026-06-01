@@ -9,3 +9,8 @@ def to_yi(value):
         return '-'
     yi = value / 100_000_000
     return f'{yi:,.2f} 億'
+
+
+@register.filter
+def dictget(d, key):
+    return d.get(key)
