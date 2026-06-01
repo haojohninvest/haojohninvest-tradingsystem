@@ -371,6 +371,13 @@ def buy_pool_view(request):
 
     qs = BuyPool.objects.select_related('stock')
 
+    # Deduplicate: per (date, stock_code), keep only the latest id
+    from django.db.models import Max
+    latest_ids = BuyPool.objects.values('date', 'stock_code').annotate(
+        max_id=Max('id')
+    ).values_list('max_id', flat=True)
+    qs = qs.filter(id__in=latest_ids)
+
     if date_from:
         qs = qs.filter(date__gte=date_from)
     if date_to:

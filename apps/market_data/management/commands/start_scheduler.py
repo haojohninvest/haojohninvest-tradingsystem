@@ -13,29 +13,38 @@ import sys
 logger = logging.getLogger('apps')
 
 def run_daily_tasks():
-    """Daily tasks: crawl prices, calculate indicators, calculate divergence"""
+    """Daily tasks: crawl prices, calculate indicators, calculate divergence, run scanner"""
+    from datetime import date, timedelta
     logger.info('Starting daily tasks...')
     
     try:
         # 1. Crawl daily stock prices
-        logger.info('[1/4] Crawling daily stock prices...')
+        logger.info('[1/5] Crawling daily stock prices...')
         call_command('backfill_runner', resume=True)
         logger.info('[OK] Stock crawl completed')
         
         # 2. Calculate technical indicators
-        logger.info('[2/4] Calculating technical indicators...')
+        logger.info('[2/5] Calculating technical indicators...')
         call_command('calc_indicators', days=14)
         logger.info('[OK] Technical indicators completed')
         
         # 3. Calculate market breadth
-        logger.info('[3/4] Calculating market breadth...')
+        logger.info('[3/5] Calculating market breadth...')
         call_command('calc_market_breadth', days=7)
         logger.info('[OK] Market breadth completed')
         
         # 4. Calculate sector divergence
-        logger.info('[4/4] Calculating sector divergence...')
+        logger.info('[4/5] Calculating sector divergence...')
         call_command('calc_divergence')
         logger.info('[OK] Sector divergence completed')
+        
+        # 5. Stock pick scanner (最近 3 個交易日)
+        logger.info('[5/5] Running stock pick scanner...')
+        today = date.today()
+        scan_end = today.strftime('%Y-%m-%d')
+        scan_start = (today - timedelta(days=3)).strftime('%Y-%m-%d')
+        call_command('stock_pick_scanner', start_date=scan_start, end_date=scan_end, output_db=True)
+        logger.info(f'[OK] Stock pick scanner completed ({scan_start} ~ {scan_end})')
         
         logger.info('=== Daily tasks completed ===')
         
