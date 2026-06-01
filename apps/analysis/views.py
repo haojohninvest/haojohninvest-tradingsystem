@@ -364,6 +364,8 @@ def buy_pool_view(request):
     date_to = request.GET.get('date_to', '')
     search = request.GET.get('search', '').strip()
     scenario_filter = request.GET.get('scenario', '')
+    first_r_date_filter = request.GET.get('first_r_date', '')
+    market_cap_min_str = request.GET.get('market_cap_min', '')
     sort_by = request.GET.get('sort', '-date')
     page = request.GET.get('page', 1)
 
@@ -379,6 +381,14 @@ def buy_pool_view(request):
         )
     if scenario_filter:
         qs = qs.filter(scenario=scenario_filter)
+    if first_r_date_filter:
+        if first_r_date_filter == 'true':
+            qs = qs.filter(first_r_date=True)
+        elif first_r_date_filter == 'false':
+            qs = qs.filter(first_r_date=False)
+    if market_cap_min_str:
+        market_cap_min = int(market_cap_min_str) * 100_000_000
+        qs = qs.filter(market_cap__gte=market_cap_min)
 
     valid_sorts = ['date', '-date', 'stock_code', 'd', 'r20', 'scenario', 'market_cap', '-market_cap', '-r20', 'return_rate', '-return_rate']
     if sort_by in valid_sorts:
@@ -403,6 +413,8 @@ def buy_pool_view(request):
         'date_to': date_to,
         'search': search,
         'scenario_filter': scenario_filter,
+        'first_r_date_filter': first_r_date_filter,
+        'market_cap_min_str': market_cap_min_str,
         'sort_by': sort_by,
     }
 

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load buypool_filters %}
 
 {% block title %}選股掃描結果 (Buy Pool) - 豪強資本交易系統{% endblock %}
 
@@ -36,6 +37,18 @@
             </select>
         </div>
         <div>
+            <label class="block text-xs text-gray-500 mb-1">首次R日期</label>
+            <select name="first_r_date" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+                <option value="">全部</option>
+                <option value="true" {% if first_r_date_filter == 'true' %}selected{% endif %}>是 (首次)</option>
+                <option value="false" {% if first_r_date_filter == 'false' %}selected{% endif %}>否 (非首次)</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">市值 >= (億)</label>
+            <input type="number" name="market_cap_min" value="{{ market_cap_min_str }}" placeholder="150" min="0" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-24">
+        </div>
+        <div>
             <label class="block text-xs text-gray-500 mb-1">排序</label>
             <select name="sort" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
                 <option value="-date" {% if sort_by == '-date' %}selected{% endif %}>買入日 (新→舊)</option>
@@ -54,8 +67,11 @@
 
     <!-- 結果表格 -->
     {% if page_obj %}
-    <div class="overflow-x-auto">
-        <table class="min-w-full border-collapse text-sm">
+    <div id="top-scroll" style="overflow-x:auto; overflow-y:hidden; height:18px; display:none;">
+        <div id="top-scroll-inner" style="height:1px;"></div>
+    </div>
+    <div class="overflow-x-auto" id="table-wrapper">
+        <table class="min-w-full border-collapse text-sm" id="buy-pool-table">
             <thead>
                 <tr class="bg-gray-50 border-b border-gray-200">
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">買入日</th>
@@ -107,11 +123,7 @@
                         </span>
                     </td>
                     <td class="px-3 py-2 whitespace-nowrap text-right text-xs text-gray-500">
-                        {% if item.market_cap >= 100000000 %}
-                            {{ item.market_cap|floatformat:"0g" }}
-                        {% else %}
-                            {{ item.market_cap|default:"-" }}
-                        {% endif %}
+                        {{ item.market_cap|to_yi }}
                     </td>
                     <td class="px-3 py-2 whitespace-nowrap text-center text-xs {% if item.first_r_date %}text-indigo-600 font-bold{% else %}text-gray-400{% endif %}">
                         {{ item.ema20_cross_date|date:"Y-m-d"|default:"-" }}
@@ -134,11 +146,11 @@
     {% if page_obj.has_other_pages %}
     <div class="flex justify-center items-center gap-2 mt-6">
         {% if page_obj.has_previous %}
-            <a href="?page={{ page_obj.previous_page_number }}&date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}&scenario={{ scenario_filter }}&sort={{ sort_by }}" class="px-3 py-1 border rounded text-sm hover:bg-gray-100">上一頁</a>
+            <a href="?page={{ page_obj.previous_page_number }}&date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}&scenario={{ scenario_filter }}&first_r_date={{ first_r_date_filter }}&market_cap_min={{ market_cap_min_str }}&sort={{ sort_by }}" class="px-3 py-1 border rounded text-sm hover:bg-gray-100">上一頁</a>
         {% endif %}
         <span class="text-sm text-gray-500 px-2">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
         {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}&date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}&scenario={{ scenario_filter }}&sort={{ sort_by }}" class="px-3 py-1 border rounded text-sm hover:bg-gray-100">下一頁</a>
+            <a href="?page={{ page_obj.next_page_number }}&date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}&scenario={{ scenario_filter }}&first_r_date={{ first_r_date_filter }}&market_cap_min={{ market_cap_min_str }}&sort={{ sort_by }}" class="px-3 py-1 border rounded text-sm hover:bg-gray-100">下一頁</a>
         {% endif %}
     </div>
     {% endif %}
@@ -150,4 +162,34 @@
         </div>
     {% endif %}
 </div>
+<script>
+(function() {
+    var wrapper = document.getElementById('table-wrapper');
+    var table = document.getElementById('buy-pool-table');
+    var topScroll = document.getElementById('top-scroll');
+    var topInner = document.getElementById('top-scroll-inner');
+    if (!wrapper || !table) return;
+
+    function sync() {
+        var tw = table.scrollWidth;
+        var ww = wrapper.clientWidth;
+        if (tw > ww) {
+            topScroll.style.display = 'block';
+            topInner.style.width = tw + 'px';
+        } else {
+            topScroll.style.display = 'none';
+        }
+    }
+
+    sync();
+    window.addEventListener('resize', sync);
+
+    topScroll.addEventListener('scroll', function() {
+        wrapper.scrollLeft = topScroll.scrollLeft;
+    });
+    wrapper.addEventListener('scroll', function() {
+        topScroll.scrollLeft = wrapper.scrollLeft;
+    });
+})();
+</script>
 {% endblock %}
