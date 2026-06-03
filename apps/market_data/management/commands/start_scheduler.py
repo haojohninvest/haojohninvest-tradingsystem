@@ -38,11 +38,11 @@ def run_daily_tasks():
         call_command('calc_divergence')
         logger.info('[OK] Sector divergence completed')
         
-        # 5. Stock pick scanner (最近 3 個交易日)
+        # 5. Stock pick scanner (最近 120 個交易日)
         logger.info('[5/5] Running stock pick scanner...')
         today = date.today()
         scan_end = today.strftime('%Y-%m-%d')
-        scan_start = (today - timedelta(days=3)).strftime('%Y-%m-%d')
+        scan_start = (today - timedelta(days=120)).strftime('%Y-%m-%d')
         call_command('stock_pick_scanner', start_date=scan_start, end_date=scan_end, output_db=True)
         logger.info(f'[OK] Stock pick scanner completed ({scan_start} ~ {scan_end})')
         
