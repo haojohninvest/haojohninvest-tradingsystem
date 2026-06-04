@@ -10,14 +10,14 @@ ANOMALY_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(o
 ANOMALY_LOG_FILE = os.path.join(ANOMALY_LOG_DIR, "price_anomalies.csv")
 
 
-def log_price_anomaly(date_str, stock_code, stock_name, close_price, prev_close, change_pct):
+def log_price_anomaly(crawl_date, date_str, stock_code, stock_name, close_price, prev_close, change_pct, reason=""):
     os.makedirs(ANOMALY_LOG_DIR, exist_ok=True)
     file_exists = os.path.isfile(ANOMALY_LOG_FILE)
     with open(ANOMALY_LOG_FILE, "a", newline="") as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["date", "code", "name", "close", "prev_close", "change_pct"])
-        writer.writerow([date_str, stock_code, stock_name, close_price, prev_close, f"{change_pct:.2%}"])
+            writer.writerow(["crawl_date", "date", "code", "name", "close", "prev_close", "change_pct", "reason"])
+        writer.writerow([crawl_date, date_str, stock_code, stock_name, close_price, prev_close, f"{change_pct:.2%}", reason])
 
 
 class PriceValidator:
@@ -37,20 +37,22 @@ class PriceValidator:
     @staticmethod
     def get_prev_close(stock_code, target_date):
         from apps.market_data.models import DailyPrice, Stock
+        from config.taiwan_holidays import is_holiday
 
         try:
             stock = Stock.objects.filter(code=stock_code).first()
             if not stock:
                 return None
-            prev = DailyPrice.objects.filter(
-                stock=stock,
-                date__lt=target_date
-            ).order_by("-date").first()
-            if not prev:
-                return None
-            days_gap = (target_date - prev.date).days
-            if days_gap > 30:
-                return None
-            return prev.close
+            prev_date = target_date - timedelta(days=1)
+            while prev_date >= target_date - timedelta(days=365):
+                if prev_date.weekday() < 5 and not is_holiday(prev_date):
+                    prev = DailyPrice.objects.filter(
+                        stock=stock,
+                        date=prev_date
+                    ).first()
+                    if prev:
+                        return prev.close
+                prev_date -= timedelta(days=1)
+            return None
         except Exception:
             return None

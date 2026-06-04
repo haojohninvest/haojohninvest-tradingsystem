@@ -2,7 +2,7 @@ import requests
 import urllib3
 import pandas as pd
 from io import StringIO
-from datetime import datetime
+from datetime import date, datetime
 import time
 import logging
 from .validators import PriceValidator
@@ -181,36 +181,71 @@ class MarketCrawler:
         return pd.DataFrame()
 
     @classmethod
-    def run_daily_crawl(cls, target_date=None):
+    def run_daily_crawl(cls, target_date=None, market='all'):
         """執行每日爬取，並將資料寫入 DB"""
         if target_date is None:
             target_date = datetime.today().date()
 
-        print('開始爬取 %s 股市資料...' % target_date)
+        result = {
+            'status': 'fail',
+            'date': target_date,
+            'market': market,
+            'companies': 0,
+            'twse_count': 0,
+            'otc_count': 0,
+            'reason': '',
+        }
 
-        twse_df = cls.fetch_twse(target_date)
-        time.sleep(3)
-        otc_df = cls.fetch_otc(target_date)
+        print('開始爬取 %s 股市資料 (market=%s)...' % (target_date, market))
+
+        twse_df = pd.DataFrame()
+        otc_df = pd.DataFrame()
+
+        if market in ('all', 'twse'):
+            twse_df = cls.fetch_twse(target_date)
+            result['twse_count'] = len(twse_df)
+        if market in ('all', 'otc'):
+            if market in ('all',):
+                time.sleep(3)
+            otc_df = cls.fetch_otc(target_date)
+            result['otc_count'] = len(otc_df)
 
         if twse_df.empty and otc_df.empty:
             print('%s 無交易資料 (可能是假日).' % target_date)
-            return
+            result['reason'] = '無交易資料(可能是休市日)'
+            return result
 
         MIN_TWSE_ROWS = 500
         MIN_OTC_ROWS = 300
 
+        twse_dropped = False
+        otc_dropped = False
         if not twse_df.empty and len(twse_df) < MIN_TWSE_ROWS:
             print('警告: TWSE 僅 %s 筆 (< %s), 疑似不完整, 捨棄' % (len(twse_df), MIN_TWSE_ROWS))
             twse_df = pd.DataFrame()
+            twse_dropped = True
         if not otc_df.empty and len(otc_df) < MIN_OTC_ROWS:
             print('警告: OTC 僅 %s 筆 (< %s), 疑似不完整, 捨棄' % (len(otc_df), MIN_OTC_ROWS))
             otc_df = pd.DataFrame()
+            otc_dropped = True
 
         if twse_df.empty and otc_df.empty:
             print('%s 無有效資料 (TWSE 或 OTC 筆數不足).' % target_date)
-            return
+            result['reason'] = '筆數不足(可能為半日交易或資料不完整)'
+            if twse_dropped and otc_dropped:
+                result['reason'] = 'TWSE+OTC筆數不足'
+            elif twse_dropped:
+                result['reason'] = 'TWSE筆數不足'
+            elif otc_dropped:
+                result['reason'] = 'OTC筆數不足'
+            return result
 
-        df_all = pd.concat([twse_df, otc_df])
+        dfs = []
+        if not twse_df.empty:
+            dfs.append(twse_df)
+        if not otc_df.empty:
+            dfs.append(otc_df)
+        df_all = pd.concat(dfs)
         df_all = df_all[df_all.index.astype(str).str.match(r'^\d{4}$')]
 
         stocks_to_create = []
@@ -243,7 +278,13 @@ class MarketCrawler:
                 is_ok, reason = PriceValidator.check_jump(row_dict, prev_close)
                 if not is_ok:
                     from apps.market_data.validators import log_price_anomaly
-                    log_price_anomaly(str(target_date), code, str(row.get('name', '')).strip(), row['close'], float(prev_close) if prev_close else 0, (row['close'] - float(prev_close)) / float(prev_close) if prev_close else 0)
+                    if prev_close is None:
+                        anomaly_reason = '無前交易日收盤價'
+                    elif prev_close <= 0:
+                        anomaly_reason = '前收盤價<=0'
+                    else:
+                        anomaly_reason = '漲跌幅>15%%'
+                    log_price_anomaly(date.today().isoformat(), str(target_date), code, str(row.get('name', '')).strip(), row['close'], float(prev_close) if prev_close and prev_close > 0 else 0, (row['close'] - float(prev_close)) / float(prev_close) if prev_close and prev_close > 0 else 0, anomaly_reason)
                     logger.warning('[%s] %s 價格異常 (仍寫入): %s' % (target_date, code, reason))
 
                 price = DailyPrice(
@@ -269,4 +310,17 @@ class MarketCrawler:
             DailyPrice.objects.filter(date=target_date).delete()
             DailyPrice.objects.bulk_create(prices_to_create)
 
+        result['status'] = 'success'
+        result['companies'] = len(prices_to_create)
+
+        if twse_dropped or otc_dropped:
+            result['status'] = 'partial'
+            parts = []
+            if twse_dropped:
+                parts.append('TWSE筆數不足')
+            if otc_dropped:
+                parts.append('OTC筆數不足')
+            result['reason'] = ', '.join(parts)
+
         print('爬取完成! 共寫入 %s 筆股價資料.' % len(prices_to_create))
+        return result

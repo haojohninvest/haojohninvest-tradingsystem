@@ -11,17 +11,29 @@
 
     # 只抓 OTC (用於補救)
     python manage.py backfill_runner --start 2020-01-01 --market otc
+
+輸出:
+    - 執行中: 逐日進度顯示在 console
+    - .backfill_progress.json: 進度存檔 (支援 --resume)
+    - logs/backfill_summary.csv: 每日爬取摘要
+    - logs/price_anomalies.csv: 價格異常記錄 (crawl_date, date, code, name, close, prev_close, change_pct, reason)
 """
 
 import os
 import json
+import csv
 from datetime import datetime, timedelta
 from django.core.management.base import BaseCommand
 from apps.market_data.crawler import MarketCrawler
 from apps.market_data.models import DailyPrice
+from config.taiwan_holidays import is_holiday
 
 PROGRESS_FILE = '.backfill_progress.json'
-
+SUMMARY_LOG_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))),
+    "logs"
+)
+SUMMARY_LOG_FILE = os.path.join(SUMMARY_LOG_DIR, "backfill_summary.csv")
 
 class Command(BaseCommand):
     help = '回填歷史股價資料'
@@ -43,6 +55,7 @@ class Command(BaseCommand):
         start_date = datetime.strptime(start_str, '%Y-%m-%d').date()
         end_date = datetime.strptime(end_str, '%Y-%m-%d').date()
 
+        # 如果 resume，讀取進度
         last_completed = None
         if resume and os.path.exists(PROGRESS_FILE):
             with open(PROGRESS_FILE, 'r') as f:
@@ -57,22 +70,72 @@ class Command(BaseCommand):
         completed = 0
         failed_dates = []
 
+        # 每日摘要記錄 (供最終 CSV 輸出)
+        daily_summary = []
+        skipped_holidays = 0
+        skipped_weekends = 0
+
         self.stdout.write(self.style.SUCCESS(f'開始回填: {start_date} ~ {end_date} (共 {total_days} 天)'))
+        self.stdout.write(self.style.SUCCESS(f'執行時間戳記: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'))
 
         while current <= end_date:
+            # 週末自動跳過
+            if current.weekday() >= 5:
+                daily_summary.append({
+                    'run_datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'date': current.strftime('%Y-%m-%d'),
+                    'market': market,
+                    'companies': 0,
+                    'status': 'weekend',
+                    'reason': '週末',
+                })
+                skipped_weekends += 1
+                current += timedelta(days=1)
+                continue
+
+            # 休市日自動跳過
+            if is_holiday(current):
+                daily_summary.append({
+                    'run_datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'date': current.strftime('%Y-%m-%d'),
+                    'market': market,
+                    'companies': 0,
+                    'status': 'holiday',
+                    'reason': '休市日',
+                })
+                skipped_holidays += 1
+                current += timedelta(days=1)
+                continue
+
             self.stdout.write(f'[{completed+1}/{total_days}] 處理 {current}...', ending=' ')
 
             try:
+                # 歷史回填：先刪除當日舊資料，確保舊髒資料不會殘留
                 DailyPrice.objects.filter(date=current).delete()
-                MarketCrawler.run_daily_crawl(current)
-                completed += 1
-                last_completed = current.strftime('%Y-%m-%d')
+                # 執行爬蟲
+                result = MarketCrawler.run_daily_crawl(current, market=market)
 
+                if result['status'] == 'success' or result['status'] == 'partial':
+                    completed += 1
+                    last_completed = current.strftime('%Y-%m-%d')
+                else:
+                    failed_dates.append(current.strftime('%Y-%m-%d'))
+
+                daily_summary.append({
+                    'run_datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'date': current.strftime('%Y-%m-%d'),
+                    'market': market,
+                    'companies': result['companies'],
+                    'status': result['status'],
+                    'reason': result.get('reason', ''),
+                })
+
+                # 寫入進度檔案
                 progress = {
                     'last_completed_date': last_completed,
                     'total_dates': total_days,
                     'completed': completed,
-                    'failed': failed_dates[-10:]
+                    'failed': failed_dates[-10:]  # 只保留最近 10 筆失敗
                 }
                 with open(PROGRESS_FILE, 'w') as f:
                     json.dump(progress, f)
@@ -81,15 +144,40 @@ class Command(BaseCommand):
 
             except Exception as e:
                 failed_dates.append(current.strftime('%Y-%m-%d'))
+                daily_summary.append({
+                    'run_datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'date': current.strftime('%Y-%m-%d'),
+                    'market': market,
+                    'companies': 0,
+                    'status': 'fail',
+                    'reason': str(e)[:200],
+                })
                 self.stdout.write(self.style.ERROR(f'FAIL: {e}'))
 
             current += timedelta(days=1)
 
+            # 延遲避免被封鎖
             if current <= end_date:
                 import time
                 time.sleep(delay)
 
+        # 產出每日摘要 CSV
+        if daily_summary:
+            os.makedirs(SUMMARY_LOG_DIR, exist_ok=True)
+            file_exists = os.path.isfile(SUMMARY_LOG_FILE)
+            with open(SUMMARY_LOG_FILE, 'a', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=['run_datetime', 'date', 'market', 'companies', 'status', 'reason'])
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerows(daily_summary)
+
+        # 最終報告
         self.stdout.write(self.style.SUCCESS(f'\n回填完成！成功 {completed}/{total_days} 天'))
+        if skipped_weekends:
+            self.stdout.write(self.style.SUCCESS(f'自動跳過週末: {skipped_weekends} 天'))
+        if skipped_holidays:
+            self.stdout.write(self.style.SUCCESS(f'自動跳過休市日: {skipped_holidays} 天'))
+        self.stdout.write(self.style.SUCCESS(f'摘要已寫入: {SUMMARY_LOG_FILE}'))
         if failed_dates:
-            self.stdout.write(self.style.WARNING(f'失敗日期: {failed_dates}'))
+            self.stdout.write(self.style.WARNING(f'失敗日期 ({len(failed_dates)} 天): {failed_dates[:10]}{"..." if len(failed_dates) > 10 else ""}'))
             self.stdout.write(self.style.WARNING(f'建議手動補抓: python manage.py backfill_runner --start {failed_dates[0]} --end {failed_dates[-1]}'))
