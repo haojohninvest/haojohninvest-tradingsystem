@@ -79,31 +79,26 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'執行時間戳記: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'))
 
         while current <= end_date:
-            # 週末自動跳過
-            if current.weekday() >= 5:
+            # 非交易日：檢查並清除 DB 中殘留的資料
+            is_non_trading_day = current.weekday() >= 5 or is_holiday(current)
+            if is_non_trading_day:
+                reason = '週末' if current.weekday() >= 5 else '休市日'
+                status = 'weekend' if current.weekday() >= 5 else 'holiday'
+                deleted_count = DailyPrice.objects.filter(date=current).delete()[0]
+                if deleted_count:
+                    self.stdout.write(f'  清除 {current} ({reason}) 的 {deleted_count} 筆殘留資料')
                 daily_summary.append({
                     'run_datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'date': current.strftime('%Y-%m-%d'),
                     'market': market,
                     'companies': 0,
-                    'status': 'weekend',
-                    'reason': '週末',
+                    'status': status,
+                    'reason': reason,
                 })
-                skipped_weekends += 1
-                current += timedelta(days=1)
-                continue
-
-            # 休市日自動跳過
-            if is_holiday(current):
-                daily_summary.append({
-                    'run_datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'date': current.strftime('%Y-%m-%d'),
-                    'market': market,
-                    'companies': 0,
-                    'status': 'holiday',
-                    'reason': '休市日',
-                })
-                skipped_holidays += 1
+                if current.weekday() >= 5:
+                    skipped_weekends += 1
+                else:
+                    skipped_holidays += 1
                 current += timedelta(days=1)
                 continue
 
