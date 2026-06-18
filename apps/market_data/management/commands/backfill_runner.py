@@ -84,9 +84,7 @@ class Command(BaseCommand):
             if is_non_trading_day:
                 reason = '週末' if current.weekday() >= 5 else '休市日'
                 status = 'weekend' if current.weekday() >= 5 else 'holiday'
-                if DailyPrice.objects.filter(date=current).exists():
-                    deleted_count = DailyPrice.objects.filter(date=current).delete()[0]
-                    self.stdout.write(f'  清除 {current} ({reason}) 的 {deleted_count} 筆殘留資料')
+                DailyPrice.objects.filter(date=current).delete()
                 daily_summary.append({
                     'run_datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'date': current.strftime('%Y-%m-%d'),
