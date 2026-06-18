@@ -328,15 +328,18 @@ class MarketCrawler:
                 }
                 prev_close = prev_close_map.get(code)
                 is_ok, reason = PriceValidator.check_jump(row_dict, prev_close)
-                if not is_ok:
+                if not is_ok or prev_close is None or prev_close <= 0:
                     if prev_close is None:
                         anomaly_reason = '無前交易日收盤價'
+                        log_reason = 'prev_close is None'
                     elif prev_close <= 0:
                         anomaly_reason = '前收盤價<=0'
+                        log_reason = 'prev_close <= 0'
                     else:
                         anomaly_reason = '漲跌幅>15%%'
+                        log_reason = reason
                     log_price_anomaly(date.today().isoformat(), str(target_date), code, str(row.get('name', '')).strip(), row['close'], float(prev_close) if prev_close and prev_close > 0 else 0, (row['close'] - float(prev_close)) / float(prev_close) if prev_close and prev_close > 0 else 0, anomaly_reason)
-                    logger.warning('[%s] %s 價格異常 (仍寫入): %s' % (target_date, code, reason))
+                    logger.warning('[%s] %s 價格異常 (仍寫入): %s' % (target_date, code, log_reason))
 
                 price = DailyPrice(
                     stock=stock,
