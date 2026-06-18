@@ -110,8 +110,6 @@ class Command(BaseCommand):
             self.stdout.write(f'[{completed+1}/{total_days}] 處理 {current}...', ending=' ')
 
             try:
-                # 歷史回填：先刪除當日舊資料，確保舊髒資料不會殘留
-                DailyPrice.objects.filter(date=current).delete()
                 # 執行爬蟲
                 result = MarketCrawler.run_daily_crawl(current, market=market)
 
