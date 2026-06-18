@@ -15,7 +15,7 @@ def calculate_all_indicators(lookback_days=14):
 
     lookback_days: 寫入最近 N 個「交易日」的指標（以 DB 中 DailyPrice 有記錄的日期為交易日）
     """
-    max_read_window = 150
+    max_read_window = 500
 
     trading_dates = list(
         DailyPrice.objects

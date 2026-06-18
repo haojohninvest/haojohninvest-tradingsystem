@@ -5,7 +5,9 @@ from io import StringIO
 from datetime import date, datetime
 import time
 import logging
-from .validators import PriceValidator
+from django.db import transaction
+from django.db.models import OuterRef, Subquery
+from .validators import PriceValidator, log_price_anomaly
 from .models import Stock, DailyPrice
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -16,15 +18,31 @@ logger = logging.getLogger(__name__)
 class MarketCrawler:
     """TWSE 與 OTC 爬蟲"""
 
-    @staticmethod
-    def fetch_twse(date_obj, max_retries=2, retry_delay=10):
-        """爬取上市股票每日收盤行情"""
+    MAX_RETRIES = 3
+    RETRY_DELAY = 10
+    REQUEST_TIMEOUT = 60
+    MIN_TWSE_ROWS = 500
+    MIN_OTC_ROWS = 300
+    TWSE_OTC_DELAY = 3
+
+    @classmethod
+    def fetch_twse(cls, date_obj, max_retries=None, retry_delay=None):
+        max_retries = max_retries if max_retries is not None else cls.MAX_RETRIES
+        retry_delay = retry_delay if retry_delay is not None else cls.RETRY_DELAY
         date_str = str(date_obj).split(' ')[0].replace('-', '')
         url = 'https://www.twse.com.tw/exchangeReport/MI_INDEX?response=csv&date=' + date_str + '&type=ALL'
 
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+            'Connection': 'keep-alive',
+        }
+
         for attempt in range(max_retries):
             try:
-                r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=30, verify=False)
+                s = requests.Session()
+                r = s.get(url, headers=headers, timeout=cls.REQUEST_TIMEOUT, verify=False)
                 if r.status_code != 200:
                     logger.warning('TWSE HTTP %s, attempt %s' % (r.status_code, attempt + 1))
                     time.sleep(retry_delay)
@@ -81,9 +99,10 @@ class MarketCrawler:
 
         return pd.DataFrame()
 
-    @staticmethod
-    def fetch_otc(date_obj, max_retries=2, retry_delay=10):
-        """爬取上櫃股票每日收盤行情"""
+    @classmethod
+    def fetch_otc(cls, date_obj, max_retries=None, retry_delay=None):
+        max_retries = max_retries if max_retries is not None else cls.MAX_RETRIES
+        retry_delay = retry_delay if retry_delay is not None else cls.RETRY_DELAY
         a = str(date_obj).split(' ')[0]
         year = int(a.split('-')[0]) - 1911
         month = a.split('-')[1]
@@ -91,9 +110,17 @@ class MarketCrawler:
         date_str = str(year) + '/' + month + '/' + day
         url = 'https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php?l=zh-tw&o=csv&d=' + date_str + '&se=AL&s=0,asc,0'
 
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+            'Connection': 'keep-alive',
+        }
+
         for attempt in range(max_retries):
             try:
-                r = requests.post(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=30, verify=False)
+                s = requests.Session()
+                r = s.post(url, headers=headers, timeout=cls.REQUEST_TIMEOUT, verify=False)
                 if r.status_code != 200:
                     logger.warning('OTC HTTP %s, attempt %s' % (r.status_code, attempt + 1))
                     time.sleep(retry_delay)
@@ -180,9 +207,31 @@ class MarketCrawler:
 
         return pd.DataFrame()
 
+    @staticmethod
+    def get_prev_close_map(codes, target_date):
+        cleaned_codes = sorted({str(code).strip() for code in codes if str(code).strip()})
+        if not cleaned_codes:
+            return {}
+
+        prev_close_subquery = DailyPrice.objects.filter(
+            stock=OuterRef('pk'),
+            date__lt=target_date,
+        ).order_by('-date').values('close')[:1]
+
+        rows = Stock.objects.filter(
+            code__in=cleaned_codes
+        ).annotate(
+            prev_close=Subquery(prev_close_subquery)
+        ).values_list('code', 'prev_close')
+
+        return {
+            str(code).strip(): prev_close
+            for code, prev_close in rows
+            if prev_close is not None
+        }
+
     @classmethod
     def run_daily_crawl(cls, target_date=None, market='all'):
-        """執行每日爬取，並將資料寫入 DB"""
         if target_date is None:
             target_date = datetime.today().date()
 
@@ -206,7 +255,7 @@ class MarketCrawler:
             result['twse_count'] = len(twse_df)
         if market in ('all', 'otc'):
             if market in ('all',):
-                time.sleep(3)
+                time.sleep(cls.TWSE_OTC_DELAY)
             otc_df = cls.fetch_otc(target_date)
             result['otc_count'] = len(otc_df)
 
@@ -215,17 +264,14 @@ class MarketCrawler:
             result['reason'] = '無交易資料(可能是休市日)'
             return result
 
-        MIN_TWSE_ROWS = 500
-        MIN_OTC_ROWS = 300
-
         twse_dropped = False
         otc_dropped = False
-        if not twse_df.empty and len(twse_df) < MIN_TWSE_ROWS:
-            print('警告: TWSE 僅 %s 筆 (< %s), 疑似不完整, 捨棄' % (len(twse_df), MIN_TWSE_ROWS))
+        if not twse_df.empty and len(twse_df) < cls.MIN_TWSE_ROWS:
+            print('警告: TWSE 僅 %s 筆 (< %s), 疑似不完整, 捨棄' % (len(twse_df), cls.MIN_TWSE_ROWS))
             twse_df = pd.DataFrame()
             twse_dropped = True
-        if not otc_df.empty and len(otc_df) < MIN_OTC_ROWS:
-            print('警告: OTC 僅 %s 筆 (< %s), 疑似不完整, 捨棄' % (len(otc_df), MIN_OTC_ROWS))
+        if not otc_df.empty and len(otc_df) < cls.MIN_OTC_ROWS:
+            print('警告: OTC 僅 %s 筆 (< %s), 疑似不完整, 捨棄' % (len(otc_df), cls.MIN_OTC_ROWS))
             otc_df = pd.DataFrame()
             otc_dropped = True
 
@@ -248,9 +294,15 @@ class MarketCrawler:
         df_all = pd.concat(dfs)
         df_all = df_all[df_all.index.astype(str).str.match(r'^\d{4}$')]
 
+        crawled_codes = [str(code).strip() for code in df_all.index.unique().astype(str)]
+        prev_close_map = cls.get_prev_close_map(crawled_codes, target_date)
+
         stocks_to_create = []
         prices_to_create = []
-        existing_stocks = {s.code: s for s in Stock.objects.all()}
+        existing_stocks = {
+            s.code: s
+            for s in Stock.objects.filter(code__in=crawled_codes)
+        }
 
         for code, row in df_all.iterrows():
             code = str(code).strip()
@@ -274,10 +326,9 @@ class MarketCrawler:
                     'close': row.get('close'),
                     'volume': row.get('volume'),
                 }
-                prev_close = PriceValidator.get_prev_close(code, target_date)
+                prev_close = prev_close_map.get(code)
                 is_ok, reason = PriceValidator.check_jump(row_dict, prev_close)
                 if not is_ok:
-                    from apps.market_data.validators import log_price_anomaly
                     if prev_close is None:
                         anomaly_reason = '無前交易日收盤價'
                     elif prev_close <= 0:
@@ -299,16 +350,29 @@ class MarketCrawler:
                 )
                 prices_to_create.append(price)
 
-        if stocks_to_create:
-            Stock.objects.bulk_create(stocks_to_create, ignore_conflicts=True)
-            existing_stocks = {s.code: s for s in Stock.objects.filter(code__in=df_all.index.unique().astype(str))}
-            for price in prices_to_create:
-                price.stock = existing_stocks.get(price.stock.code)
-
         if prices_to_create:
-            prices_to_create = [p for p in prices_to_create if p.stock and p.stock.id]
-            DailyPrice.objects.filter(date=target_date).delete()
-            DailyPrice.objects.bulk_create(prices_to_create)
+            with transaction.atomic():
+                markets_to_replace = sorted(set(df_all['market'].dropna().astype(str)))
+
+                if stocks_to_create:
+                    Stock.objects.bulk_create(stocks_to_create, ignore_conflicts=True)
+
+                existing_stocks = {
+                    s.code: s
+                    for s in Stock.objects.filter(code__in=crawled_codes)
+                }
+
+                for price in prices_to_create:
+                    price.stock = existing_stocks.get(price.stock.code)
+
+                prices_to_create = [p for p in prices_to_create if p.stock and p.stock.id]
+
+                if prices_to_create:
+                    DailyPrice.objects.filter(
+                        date=target_date,
+                        stock__market__in=markets_to_replace,
+                    ).delete()
+                    DailyPrice.objects.bulk_create(prices_to_create)
 
         result['status'] = 'success'
         result['companies'] = len(prices_to_create)
