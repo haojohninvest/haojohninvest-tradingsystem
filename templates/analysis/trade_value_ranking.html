@@ -61,13 +61,28 @@
         </div>
     </form>
 
-    <!-- 兩張大圖 -->
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-        <div class="border border-gray-100 rounded-lg p-2 bg-white shadow-sm">
-            {{ abs_chart|safe }}
+    <!-- 增 / 減 分開 Treemap -->
+    <div class="mb-4">
+        <h2 class="text-md font-bold text-gray-700 mb-2">成交金額增減（絕對值）— {{ curr_label }}</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="border border-green-200 rounded-lg p-1 bg-white shadow-sm">
+                {{ abs_gain|safe }}
+            </div>
+            <div class="border border-red-200 rounded-lg p-1 bg-white shadow-sm">
+                {{ abs_loss|safe }}
+            </div>
         </div>
-        <div class="border border-gray-100 rounded-lg p-2 bg-white shadow-sm">
-            {{ pct_chart|safe }}
+    </div>
+
+    <div class="mb-8">
+        <h2 class="text-md font-bold text-gray-700 mb-2">成交金額增減（%）— {{ curr_label }}</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="border border-green-200 rounded-lg p-1 bg-white shadow-sm">
+                {{ pct_gain|safe }}
+            </div>
+            <div class="border border-red-200 rounded-lg p-1 bg-white shadow-sm">
+                {{ pct_loss|safe }}
+            </div>
         </div>
     </div>
 
@@ -75,6 +90,12 @@
     {% if selected_sector and detail_rows %}
     <div class="border-t pt-6">
         <h2 class="text-lg font-bold text-gray-800 mb-4">{{ selected_sector }} — 每日明細 ({{ curr_label }})</h2>
+
+        {% if detail_chart %}
+        <div class="border border-gray-100 rounded-lg p-2 bg-white shadow-sm mb-6">
+            {{ detail_chart|safe }}
+        </div>
+        {% endif %}
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm border-collapse">
                 <thead>

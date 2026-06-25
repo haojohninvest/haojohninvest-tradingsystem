@@ -484,14 +484,21 @@ def trade_value_ranking_view(request):
     abs_sorted['rank'] = range(1, len(abs_sorted) + 1)
     pct_sorted['rank'] = range(1, len(pct_sorted) + 1)
 
-    # ── 8. 畫 Treemap 矩形樹狀圖（只取前 50 名避免太擠） ──
-    def _treemap_chart(sorted_df, val_col, fmt, title):
-        df = sorted_df.head(50).copy() if len(sorted_df) > 50 else sorted_df
-        vals = df[val_col].tolist()
-        labels = df['sector'].tolist()
+    # ── 8. 畫 Treemap（增/減分開，各取前 25 名） ──
+    def _treemap_half(df, val_col, fmt, title, is_gain, chart_id):
+        """is_gain=True: 正值（增加），False: 負值（減少）"""
+        if is_gain:
+            subset = df[df[val_col] > 0].head(25).copy()
+            color_base = '#22c55e'
+        else:
+            subset = df[df[val_col] < 0].head(25).copy()
+            color_base = '#ef4444'
+        if subset.empty:
+            return None
 
+        vals = subset[val_col].tolist()
+        labels = subset['sector'].tolist()
         sizes = [abs(v) for v in vals]
-        colors = ['#22c55e' if v >= 0 else '#ef4444' for v in vals]
         text_vals = [fmt.format(v=v) for v in vals]
 
         fig = go.Figure()
@@ -500,7 +507,7 @@ def trade_value_ranking_view(request):
             parents=[''] * len(labels),
             values=sizes,
             marker=dict(
-                colors=colors,
+                colors=[color_base] * len(labels),
                 line=dict(width=1.5, color='rgba(255,255,255,0.6)'),
                 pad=dict(t=3, l=3, r=3, b=3),
             ),
@@ -511,25 +518,36 @@ def trade_value_ranking_view(request):
             customdata=[[v] for v in text_vals],
             branchvalues='total',
             tiling=dict(packing='squarify', pad=3),
+            ids=labels,
         ))
-
         fig.update_layout(
-            title=dict(text=title, font=dict(size=18, color='#1f2937')),
-            height=520,
-            margin=dict(l=5, r=5, t=50, b=5),
+            title=dict(text=title, font=dict(size=15, color='#374151')),
+            height=400,
+            margin=dict(l=5, r=5, t=40, b=5),
             paper_bgcolor='white',
             hoverlabel=dict(bgcolor='#1f2937', font_size=13, font_color='white'),
+            clickmode='event',
         )
-        return fig.to_html(full_html=False, include_plotlyjs=False)
+        html = fig.to_html(full_html=False, include_plotlyjs=False, div_id=chart_id)
+        click_js = f'''<script>
+document.getElementById('{chart_id}').on('plotly_click', function(data) {{
+    var pts = data.points;
+    if (pts && pts.length > 0) {{
+        var sec = pts[0].label;
+        if (sec) {{
+            var u = new URL(window.location);
+            u.searchParams.set('sector', sec);
+            window.location.href = u.toString();
+        }}
+    }}
+}});
+</script>'''
+        return html + click_js
 
-    abs_chart = _treemap_chart(
-        abs_sorted, 'abs_change', '{v:+,.0f}',
-        f'成交金額增減（絕對值）— {curr_label}'
-    )
-    pct_chart = _treemap_chart(
-        pct_sorted, 'pct_change', '{v:+.2f}%',
-        f'成交金額增減（%）— {curr_label}'
-    )
+    abs_gain = _treemap_half(abs_sorted, 'abs_change', '{v:+,.0f}', '▲ 增加（絕對值）', True, 'abs-gain')
+    abs_loss = _treemap_half(abs_sorted, 'abs_change', '{v:+,.0f}', '▼ 減少（絕對值）', False, 'abs-loss')
+    pct_gain = _treemap_half(pct_sorted, 'pct_change', '{v:+.2f}%', '▲ 增加（%）', True, 'pct-gain')
+    pct_loss = _treemap_half(pct_sorted, 'pct_change', '{v:+.2f}%', '▼ 減少（%）', False, 'pct-loss')
 
     # ── 9. 族群每日明細（當選定族群時） ──
     all_sectors = sorted(merged['sector'].unique().tolist())
@@ -599,6 +617,80 @@ def trade_value_ranking_view(request):
                     'pct_rank': '-',
                 })
 
+    # ── 10. 族群明細折線圖（跟隨使用者設定的區間，若太短則往前補足） ──
+    detail_chart = ''
+    if selected_sector and selected_sector in merged['sector'].values:
+        # 跟隨使用者選的區間，但至少補到 20 個交易日
+        chart_end = max(curr_dates) if curr_dates else latest_date
+        all_desc = sorted([d for d in all_dates if d <= chart_end], reverse=True)
+        n_selected = len(curr_dates)
+        n_chart = max(n_selected, 20)
+        chart_dates = sorted(all_desc[:n_chart])
+
+        chart_rows = []
+        for d in chart_dates:
+            day_df = daily_sector[daily_sector['date'] == d]
+            if day_df.empty:
+                continue
+            prev_d = None
+            for pd_candidate in all_dates:
+                if pd_candidate < d:
+                    prev_d = pd_candidate
+                    break
+            s_row = day_df[day_df['sector'] == selected_sector]
+            if s_row.empty:
+                continue
+            curr_val = s_row['trade_value'].iloc[0]
+            if prev_d:
+                prev_df = daily_sector[(daily_sector['date'] == prev_d) & (daily_sector['sector'] == selected_sector)]
+                prev_val = prev_df['trade_value'].iloc[0] if not prev_df.empty else 0.0
+            else:
+                prev_val = 0.0
+            abs_ch = curr_val - prev_val
+            pct_ch = (abs_ch / prev_val * 100) if prev_val > 0 else 0.0
+            chart_rows.append({'date': d, 'curr_val': curr_val, 'abs_change': abs_ch, 'pct_change': pct_ch})
+
+        if chart_rows:
+            df_line = pd.DataFrame(chart_rows).sort_values('date')
+            dates_str = [d.strftime('%m/%d') if hasattr(d, 'strftime') else str(d) for d in df_line['date']]
+
+            fig_line = make_subplots(
+                rows=2, cols=1, shared_xaxes=True,
+                vertical_spacing=0.08,
+            )
+            fig_line.add_trace(
+                go.Scatter(x=dates_str, y=list(df_line['curr_val']),
+                    mode='lines+markers', name='成交金額',
+                    line=dict(color='#f59e0b', width=2.5),
+                    marker=dict(size=6, color='#f59e0b'),
+                    hovertemplate='%{x}<br>成交金額: %{y:,.0f}<extra></extra>'),
+                row=1, col=1,
+            )
+            fig_line.add_trace(
+                go.Scatter(x=dates_str, y=list(df_line['pct_change']),
+                    mode='lines+markers', name='增減%',
+                    line=dict(color='#3b82f6', width=2.5),
+                    marker=dict(size=6, color='#3b82f6'),
+                    hovertemplate='%{x}<br>增減%: %{y:+.2f}%<extra></extra>'),
+                row=2, col=1,
+            )
+
+            fig_line.update_layout(
+                title=dict(text=f'{selected_sector} — 成交金額 & 增減%（{chart_dates[0].strftime("%m/%d") if hasattr(chart_dates[0], "strftime") else chart_dates[0]} ~ {chart_dates[-1].strftime("%m/%d") if hasattr(chart_dates[-1], "strftime") else chart_dates[-1]}）', font=dict(size=16, color='#1f2937')),
+                height=480,
+                margin=dict(l=70, r=30, t=50, b=30),
+                paper_bgcolor='white',
+                hovermode='x unified',
+                hoverlabel=dict(bgcolor='#1f2937', font=dict(color='white')),
+                legend=dict(orientation='h', y=1.05, x=0.5, xanchor='center'),
+                dragmode=False,
+            )
+            fig_line.update_xaxes(title_text='', showgrid=True, gridcolor='#e5e7eb', showspikes=True, spikesnap='cursor', spikemode='across', spikecolor='#9ca3af', spikethickness=1, spikedash='solid', row=2, col=1)
+            fig_line.update_xaxes(showgrid=True, gridcolor='#e5e7eb', showspikes=True, spikesnap='cursor', spikemode='across', spikecolor='#9ca3af', spikethickness=1, spikedash='solid', row=1, col=1)
+            fig_line.update_yaxes(title_text='成交金額', showgrid=True, gridcolor='#e5e7eb', zeroline=False, row=1, col=1)
+            fig_line.update_yaxes(title_text='增減%', showgrid=True, gridcolor='#e5e7eb', zeroline=True, zerolinecolor='#d1d5db', row=2, col=1)
+            detail_chart = fig_line.to_html(full_html=False, include_plotlyjs=False)
+
     context = {
         'error': '',
         'mode': mode,
@@ -611,9 +703,12 @@ def trade_value_ranking_view(request):
         'date_from': request.GET.get('date_from', ''),
         'date_to': request.GET.get('date_to', ''),
         'n_val': request.GET.get('n', '20'),
-        'abs_chart': abs_chart,
-        'pct_chart': pct_chart,
+        'abs_gain': abs_gain,
+        'abs_loss': abs_loss,
+        'pct_gain': pct_gain,
+        'pct_loss': pct_loss,
         'detail_rows': detail_rows,
+        'detail_chart': detail_chart,
     }
     return render(request, 'analysis/trade_value_ranking.html', context)
 
