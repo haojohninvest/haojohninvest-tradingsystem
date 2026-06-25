@@ -70,6 +70,7 @@
     <!-- 四張 Treemap（選取族群時隱藏） -->
     {% if not selected_sector %}
     <div class="mb-4">
+        {% if mode == 'single' %}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div class="border border-gray-200 rounded-lg p-1 bg-white shadow-sm">
                 {{ abs_top_left|safe }}
@@ -78,6 +79,13 @@
                 {{ abs_top_right|safe }}
             </div>
         </div>
+        {% else %}
+        <div class="grid grid-cols-1 gap-4">
+            <div class="border border-gray-200 rounded-lg p-1 bg-white shadow-sm">
+                {{ abs_top_left|safe }}
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <div class="mb-8">
@@ -86,7 +94,7 @@
                 {{ pct_by_abs|safe }}
             </div>
             <div class="border border-gray-200 rounded-lg p-1 bg-white shadow-sm">
-                {{ pct_loss|safe }}
+                {{ br_mcap|safe }}
             </div>
         </div>
     </div>

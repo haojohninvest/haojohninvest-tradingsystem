@@ -486,10 +486,10 @@ def trade_value_ranking_view(request):
     abs_sorted['rank'] = range(1, len(abs_sorted) + 1)
     pct_sorted['rank'] = range(1, len(pct_sorted) + 1)
 
-    # ── 8. 計算前一日單日增減（右上圖用） ──
+    # ── 8. 計算前一日單日增減（右上圖用，永遠用最新交易日，僅單日模式顯示） ──
     yesterday_abs = None
-    latest_trade_day = max(curr_dates) if curr_dates else None
-    if latest_trade_day and prev_dates:
+    if mode == 'single':
+        latest_trade_day = latest_date
         day_before = [d for d in all_dates if d < latest_trade_day]
         if day_before:
             day_before = day_before[0]
@@ -592,12 +592,69 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
         colors_list=bl_colors,
     )
 
-    # BOTTOM-RIGHT: 維持原本的 % 減少（負值）
-    pct_loss_df = pct_sorted[pct_sorted['pct_change'] < 0].head(25).copy()
-    pct_loss = _treemap_chart(
-        pct_loss_df, 'pct_change', '{v:+.2f}%',
-        f'%減少 {top_left_date_str}', 'pct-loss',
-    )
+    # BOTTOM-RIGHT: 產業市值變化（區間首尾差），取 tree 上有出現的產業
+    import bisect
+    br_sectors = set()
+    if not top_left_df.empty:
+        br_sectors.update(top_left_df['sector'].tolist())
+    if abs_top_right is not None and yesterday_abs is not None:
+        br_sectors.update(yesterday_abs.head(25)['sector'].tolist())
+
+    br_cap_change = None
+    if br_sectors and curr_dates:
+        start_date = min(curr_dates)
+        end_date = max(curr_dates)
+        # 取得這些產業的所有 stock_id
+        ss_records = StockSector.objects.filter(
+            sector__name__in=list(br_sectors)
+        ).select_related('sector').values('stock_id', 'sector__name')
+        sector_of_stock = {}
+        stock_ids = set()
+        for rec in ss_records:
+            sector_of_stock[rec['stock_id']] = rec['sector__name']
+            stock_ids.add(rec['stock_id'])
+
+        if stock_ids:
+            # 取得股價
+            prices_qs = DailyPrice.objects.filter(
+                stock_id__in=list(stock_ids),
+                date__in=[start_date, end_date],
+                close__isnull=False,
+            ).values('stock_id', 'date', 'close')
+            df_p = pd.DataFrame(list(prices_qs))
+            df_p['close'] = df_p['close'].astype(float)
+
+            # 取得股數
+            shares_records = StockSharesHistory.objects.filter(
+                stock_id__in=list(stock_ids),
+                date__lte=end_date,
+            ).order_by('stock_id', '-date').values('stock_id', 'date', 'outstanding_shares')
+            shares_map = {}
+            for rec in shares_records:
+                sid = rec['stock_id']
+                if sid not in shares_map:
+                    shares_map[sid] = rec['outstanding_shares'] or 0
+
+            df_p['shares'] = df_p['stock_id'].map(shares_map).fillna(0)
+            df_p['mcap'] = df_p['close'] * df_p['shares']
+            df_p['sector'] = df_p['stock_id'].map(sector_of_stock)
+
+            # 匯總 per (date, sector)
+            cap_daily = df_p.groupby(['date', 'sector'], as_index=False)['mcap'].sum()
+            cap_start = cap_daily[cap_daily['date'] == start_date][['sector', 'mcap']].rename(columns={'mcap': 'start_cap'})
+            cap_end = cap_daily[cap_daily['date'] == end_date][['sector', 'mcap']].rename(columns={'mcap': 'end_cap'})
+            cap_merged = pd.merge(cap_end, cap_start, on='sector', how='left').fillna(0)
+            cap_merged['cap_change'] = cap_merged['end_cap'] - cap_merged['start_cap']
+            cap_merged = cap_merged.sort_values('cap_change', ascending=False).reset_index(drop=True)
+            br_cap_change = cap_merged
+
+    br_mcap = None
+    if br_cap_change is not None:
+        br_df = br_cap_change.head(25).copy()
+        br_mcap = _treemap_chart(
+            br_df, 'cap_change', '{v:+,.0f}',
+            f'產業市值變化（首尾差） {top_left_date_str}', 'br-mcap',
+        )
 
     # ── 9. 族群每日明細（當選定族群時） ──
     all_sectors = sorted(merged['sector'].unique().tolist())
@@ -757,7 +814,7 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
         'abs_top_left': abs_top_left,
         'abs_top_right': abs_top_right,
         'pct_by_abs': pct_by_abs,
-        'pct_loss': pct_loss,
+        'br_mcap': br_mcap,
         'detail_rows': detail_rows,
         'detail_chart': detail_chart,
     }
