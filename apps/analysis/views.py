@@ -375,6 +375,7 @@ def trade_value_ranking_view(request):
     prev_dates = []
     curr_label = ''
 
+    is_non_trading = False
     if mode == 'single':
         raw = request.GET.get('date', str(latest_date))
         try:
@@ -382,6 +383,7 @@ def trade_value_ranking_view(request):
         except ValueError:
             td = latest_date
         if td not in all_set:
+            is_non_trading = True
             td = latest_date
         curr_dates = [td]
         prev_candidates = [d for d in all_dates if d < td]
@@ -484,30 +486,39 @@ def trade_value_ranking_view(request):
     abs_sorted['rank'] = range(1, len(abs_sorted) + 1)
     pct_sorted['rank'] = range(1, len(pct_sorted) + 1)
 
-    # ── 8. 畫 Treemap（增/減分開，各取前 25 名） ──
-    def _treemap_half(df, val_col, fmt, title, is_gain, chart_id):
-        """is_gain=True: 正值（增加），False: 負值（減少）"""
-        if is_gain:
-            subset = df[df[val_col] > 0].head(25).copy()
-            color_base = '#22c55e'
-        else:
-            subset = df[df[val_col] < 0].head(25).copy()
-            color_base = '#ef4444'
-        if subset.empty:
-            return None
+    # ── 8. 計算前一日單日增減（右上圖用） ──
+    yesterday_abs = None
+    latest_trade_day = max(curr_dates) if curr_dates else None
+    if latest_trade_day and prev_dates:
+        day_before = [d for d in all_dates if d < latest_trade_day]
+        if day_before:
+            day_before = day_before[0]
+            yd_curr = daily_sector[daily_sector['date'] == latest_trade_day].groupby('sector', as_index=False)['trade_value'].sum()
+            yd_prev = daily_sector[daily_sector['date'] == day_before].groupby('sector', as_index=False)['trade_value'].sum()
+            yd_curr.columns = ['sector', 'curr']
+            yd_prev.columns = ['sector', 'prev']
+            yd = pd.merge(yd_curr, yd_prev, on='sector', how='left').fillna(0)
+            yd['abs_change'] = yd['curr'] - yd['prev']
+            yd = yd[yd['curr'] > 0].sort_values('abs_change', ascending=False).reset_index(drop=True)
+            yesterday_abs = yd
 
-        vals = subset[val_col].tolist()
-        labels = subset['sector'].tolist()
+    # ── 9. 畫 Treemap ──
+    def _treemap_chart(df_subset, val_col, fmt, title, chart_id, colors_list=None):
+        """df_subset: 已篩選好前 N 名的 DataFrame"""
+        if df_subset.empty:
+            return None
+        vals = df_subset[val_col].tolist()
+        labels = df_subset['sector'].tolist()
         sizes = [abs(v) for v in vals]
         text_vals = [fmt.format(v=v) for v in vals]
+        if colors_list is None:
+            colors_list = ['#6b7280'] * len(labels)
 
         fig = go.Figure()
         fig.add_trace(go.Treemap(
-            labels=labels,
-            parents=[''] * len(labels),
-            values=sizes,
+            labels=labels, parents=[''] * len(labels), values=sizes,
             marker=dict(
-                colors=[color_base] * len(labels),
+                colors=colors_list,
                 line=dict(width=1.5, color='rgba(255,255,255,0.6)'),
                 pad=dict(t=3, l=3, r=3, b=3),
             ),
@@ -516,14 +527,11 @@ def trade_value_ranking_view(request):
             textfont=dict(size=15, color='white', family='Arial Black'),
             hovertemplate='<b>%{label}</b><br>%{customdata}<extra></extra>',
             customdata=[[v] for v in text_vals],
-            branchvalues='total',
-            tiling=dict(packing='squarify', pad=3),
-            ids=labels,
+            branchvalues='total', tiling=dict(packing='squarify', pad=3), ids=labels,
         ))
         fig.update_layout(
             title=dict(text=title, font=dict(size=15, color='#374151')),
-            height=400,
-            margin=dict(l=5, r=5, t=40, b=5),
+            height=400, margin=dict(l=5, r=5, t=40, b=5),
             paper_bgcolor='white',
             hoverlabel=dict(bgcolor='#1f2937', font_size=13, font_color='white'),
             clickmode='event',
@@ -544,10 +552,52 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
 </script>'''
         return html + click_js
 
-    abs_gain = _treemap_half(abs_sorted, 'abs_change', '{v:+,.0f}', '▲ 增加（絕對值）', True, 'abs-gain')
-    abs_loss = _treemap_half(abs_sorted, 'abs_change', '{v:+,.0f}', '▼ 減少（絕對值）', False, 'abs-loss')
-    pct_gain = _treemap_half(pct_sorted, 'pct_change', '{v:+.2f}%', '▲ 增加（%）', True, 'pct-gain')
-    pct_loss = _treemap_half(pct_sorted, 'pct_change', '{v:+.2f}%', '▼ 減少（%）', False, 'pct-loss')
+    data_date_str = curr_label
+
+    # TOP-LEFT: 區間絕對增減（正值，前 25）
+    top_left_df = abs_sorted[abs_sorted['abs_change'] > 0].head(25).copy()
+
+    # 比對右上 top5，在左上標黃色
+    highlight_map = {}
+    if yesterday_abs is not None:
+        top5_yesterday = set(yesterday_abs.head(5)['sector'].tolist())
+        top5_period = set(top_left_df.head(5)['sector'].tolist())
+        new_in_top5 = top5_yesterday - top5_period
+        for s in top_left_df['sector']:
+            highlight_map[s] = '#eab308' if s in new_in_top5 else '#6b7280'
+    top_left_colors = [highlight_map.get(s, '#6b7280') for s in top_left_df['sector']]
+    top_left_date_str = f'（{data_date_str}）'
+
+    abs_top_left = _treemap_chart(
+        top_left_df, 'abs_change', '{v:+,.0f}',
+        f'區間絕對增減 {top_left_date_str}', 'abs-top-left',
+        colors_list=top_left_colors,
+    )
+
+    # TOP-RIGHT: 前一日單日絕對增減（正值，前 25）
+    abs_top_right = None
+    if yesterday_abs is not None:
+        yd_pos = yesterday_abs[yesterday_abs['abs_change'] > 0].head(25).copy()
+        abs_top_right = _treemap_chart(
+            yd_pos, 'abs_change', '{v:+,.0f}',
+            f'前日絕對增減 {top_left_date_str}', 'abs-top-right',
+        )
+
+    # BOTTOM-LEFT: 以絕對值排序的族群 % 增減（取前 25 大絕對變動）, >100% 標黃
+    bl_df = abs_sorted.head(25).copy()
+    bl_colors = ['#eab308' if v > 100 else '#6b7280' for v in bl_df['pct_change']]
+    pct_by_abs = _treemap_chart(
+        bl_df, 'pct_change', '{v:+.2f}%',
+        f'%增減（依絕對值排序） {top_left_date_str}', 'pct-by-abs',
+        colors_list=bl_colors,
+    )
+
+    # BOTTOM-RIGHT: 維持原本的 % 減少（負值）
+    pct_loss_df = pct_sorted[pct_sorted['pct_change'] < 0].head(25).copy()
+    pct_loss = _treemap_chart(
+        pct_loss_df, 'pct_change', '{v:+.2f}%',
+        f'%減少 {top_left_date_str}', 'pct-loss',
+    )
 
     # ── 9. 族群每日明細（當選定族群時） ──
     all_sectors = sorted(merged['sector'].unique().tolist())
@@ -694,6 +744,7 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
     context = {
         'error': '',
         'mode': mode,
+        'is_non_trading': is_non_trading,
         'curr_label': curr_label,
         'latest_date': latest_date,
         'all_dates': all_dates[:60],
@@ -703,9 +754,9 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
         'date_from': request.GET.get('date_from', ''),
         'date_to': request.GET.get('date_to', ''),
         'n_val': request.GET.get('n', '20'),
-        'abs_gain': abs_gain,
-        'abs_loss': abs_loss,
-        'pct_gain': pct_gain,
+        'abs_top_left': abs_top_left,
+        'abs_top_right': abs_top_right,
+        'pct_by_abs': pct_by_abs,
         'pct_loss': pct_loss,
         'detail_rows': detail_rows,
         'detail_chart': detail_chart,

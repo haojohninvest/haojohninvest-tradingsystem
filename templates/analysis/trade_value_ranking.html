@@ -3,7 +3,7 @@
 {% block content %}
 <div class="bg-white rounded-xl shadow-md p-6 mb-8">
     <h1 class="text-2xl font-bold text-gray-800 mb-2">成交金額增減排行</h1>
-    <p class="text-sm text-gray-500 mb-6">顯示各族群在指定區間內的成交金額變化，綠色表示增加、紅色表示減少</p>
+    <p class="text-sm text-gray-500 mb-6">各族群成交金額增減排行（灰色=一般、黃色=特殊標記）</p>
 
     {% if error %}
     <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{{ error }}</div>
@@ -61,30 +61,36 @@
         </div>
     </form>
 
-    <!-- 增 / 減 分開 Treemap -->
+    {% if is_non_trading %}
+    <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-lg mb-4">
+        選擇的日期無交易資料，以下顯示最近交易日（{{ curr_label }}）的數據
+    </div>
+    {% endif %}
+
+    <!-- 四張 Treemap（選取族群時隱藏） -->
+    {% if not selected_sector %}
     <div class="mb-4">
-        <h2 class="text-md font-bold text-gray-700 mb-2">成交金額增減（絕對值）— {{ curr_label }}</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="border border-green-200 rounded-lg p-1 bg-white shadow-sm">
-                {{ abs_gain|safe }}
+            <div class="border border-gray-200 rounded-lg p-1 bg-white shadow-sm">
+                {{ abs_top_left|safe }}
             </div>
-            <div class="border border-red-200 rounded-lg p-1 bg-white shadow-sm">
-                {{ abs_loss|safe }}
+            <div class="border border-gray-200 rounded-lg p-1 bg-white shadow-sm">
+                {{ abs_top_right|safe }}
             </div>
         </div>
     </div>
 
     <div class="mb-8">
-        <h2 class="text-md font-bold text-gray-700 mb-2">成交金額增減（%）— {{ curr_label }}</h2>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="border border-green-200 rounded-lg p-1 bg-white shadow-sm">
-                {{ pct_gain|safe }}
+            <div class="border border-gray-200 rounded-lg p-1 bg-white shadow-sm">
+                {{ pct_by_abs|safe }}
             </div>
-            <div class="border border-red-200 rounded-lg p-1 bg-white shadow-sm">
+            <div class="border border-gray-200 rounded-lg p-1 bg-white shadow-sm">
                 {{ pct_loss|safe }}
             </div>
         </div>
     </div>
+    {% endif %}
 
     <!-- 族群每日明細 -->
     {% if selected_sector and detail_rows %}
