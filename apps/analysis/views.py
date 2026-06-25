@@ -440,8 +440,21 @@ def trade_value_ranking_view(request):
         if nm and nm not in bad_names:
             stock_to_sector[rec['stock_id']] = nm
 
-    # ── 4. 撈 DailyPrice ──
-    all_needed = sorted(set(curr_dates + prev_dates))
+    # ── 4. 計算前一日單日增減所需日期（右上圖用） ──
+    yd_curr_date = None
+    yd_prev_date = None
+    if mode == 'single':
+        selected = curr_dates[0] if curr_dates else latest_date
+        prev_of_selected = [d for d in all_dates if d < selected]
+        top_right_day = prev_of_selected[0] if prev_of_selected else None
+        if top_right_day:
+            day_before_list = [d for d in all_dates if d < top_right_day]
+            if day_before_list:
+                yd_curr_date = top_right_day
+                yd_prev_date = day_before_list[0]
+
+    # ── 5. 撈 DailyPrice ──
+    all_needed = sorted(set(curr_dates + prev_dates + [yd_curr_date, yd_prev_date]))
     prices = DailyPrice.objects.filter(
         date__in=all_needed,
         trade_value__isnull=False,
@@ -458,10 +471,10 @@ def trade_value_ranking_view(request):
         return render(request, 'analysis/trade_value_ranking.html', {'error': '無族群分類資料'})
     df['trade_value'] = df['trade_value'].astype(float)
 
-    # ── 5. 每日 × 族群 匯總 ──
+    # ── 6. 每日 × 族群 匯總 ──
     daily_sector = df.groupby(['date', 'sector'], as_index=False)['trade_value'].sum()
 
-    # ── 6. 計算區間增減 ──
+    # ── 7. 計算區間增減 ──
     curr_agg = daily_sector[daily_sector['date'].isin(curr_dates)].groupby('sector', as_index=False)['trade_value'].sum()
     prev_agg = daily_sector[daily_sector['date'].isin(prev_dates)].groupby('sector', as_index=False)['trade_value'].sum()
     curr_agg.columns = ['sector', 'curr_val']
@@ -480,29 +493,25 @@ def trade_value_ranking_view(request):
     if merged.empty:
         return render(request, 'analysis/trade_value_ranking.html', {'error': '計算後無有效資料'})
 
-    # ── 7. 排序 ──
+    # ── 8. 排序 ──
     abs_sorted = merged.sort_values('abs_change', ascending=False).reset_index(drop=True)
     pct_sorted = merged.sort_values('pct_change', ascending=False).reset_index(drop=True)
     abs_sorted['rank'] = range(1, len(abs_sorted) + 1)
     pct_sorted['rank'] = range(1, len(pct_sorted) + 1)
 
-    # ── 8. 計算前一日單日增減（右上圖用，永遠用最新交易日，僅單日模式顯示） ──
+    # ── 9. 計算前一日單日增減（右上圖用，僅單日模式顯示） ──
     yesterday_abs = None
-    if mode == 'single':
-        latest_trade_day = latest_date
-        day_before = [d for d in all_dates if d < latest_trade_day]
-        if day_before:
-            day_before = day_before[0]
-            yd_curr = daily_sector[daily_sector['date'] == latest_trade_day].groupby('sector', as_index=False)['trade_value'].sum()
-            yd_prev = daily_sector[daily_sector['date'] == day_before].groupby('sector', as_index=False)['trade_value'].sum()
-            yd_curr.columns = ['sector', 'curr']
-            yd_prev.columns = ['sector', 'prev']
-            yd = pd.merge(yd_curr, yd_prev, on='sector', how='left').fillna(0)
-            yd['abs_change'] = yd['curr'] - yd['prev']
-            yd = yd[yd['curr'] > 0].sort_values('abs_change', ascending=False).reset_index(drop=True)
-            yesterday_abs = yd
+    if mode == 'single' and yd_curr_date and yd_prev_date:
+        yd_curr = daily_sector[daily_sector['date'] == yd_curr_date].groupby('sector', as_index=False)['trade_value'].sum()
+        yd_prev = daily_sector[daily_sector['date'] == yd_prev_date].groupby('sector', as_index=False)['trade_value'].sum()
+        yd_curr.columns = ['sector', 'curr']
+        yd_prev.columns = ['sector', 'prev']
+        yd = pd.merge(yd_curr, yd_prev, on='sector', how='left').fillna(0)
+        yd['abs_change'] = yd['curr'] - yd['prev']
+        yd = yd[yd['curr'] > 0].sort_values('abs_change', ascending=False).reset_index(drop=True)
+        yesterday_abs = yd
 
-    # ── 9. 畫 Treemap ──
+    # ── 10. 畫 Treemap ──
     def _treemap_chart(df_subset, val_col, fmt, title, chart_id, colors_list=None):
         """df_subset: 已篩選好前 N 名的 DataFrame"""
         if df_subset.empty:
