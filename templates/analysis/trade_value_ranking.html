@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+{% block title %}成交金額增減排行 - 豪強資本交易系統{% endblock %}
+{% block content %}
+<div class="bg-white rounded-xl shadow-md p-6 mb-8">
+    <h1 class="text-2xl font-bold text-gray-800 mb-2">成交金額增減排行</h1>
+    <p class="text-sm text-gray-500 mb-6">顯示各族群在指定區間內的成交金額變化，綠色表示增加、紅色表示減少</p>
+
+    {% if error %}
+    <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">{{ error }}</div>
+    {% else %}
+
+    <!-- 區間選擇 -->
+    <form method="GET" class="mb-6 bg-gray-50 p-4 rounded-lg space-y-4">
+        <div class="flex flex-wrap gap-4 items-end">
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">模式</label>
+                <select name="mode" onchange="this.form.submit()" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+                    <option value="single" {% if mode == 'single' %}selected{% endif %}>單日</option>
+                    <option value="range" {% if mode == 'range' %}selected{% endif %}>日期區間</option>
+                    <option value="nday" {% if mode == 'nday' %}selected{% endif %}>N日內</option>
+                </select>
+            </div>
+
+            <div id="single-input" class="flex gap-2 items-end" {% if mode != 'single' %}style="display:none"{% endif %}>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">日期</label>
+                    <input type="date" name="date" value="{{ date_val }}" max="{{ latest_date }}" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+                </div>
+            </div>
+
+            <div id="range-input" class="flex gap-2 items-end" {% if mode != 'range' %}style="display:none"{% endif %}>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">起</label>
+                    <input type="date" name="date_from" value="{{ date_from }}" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">迄</label>
+                    <input type="date" name="date_to" value="{{ date_to }}" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+                </div>
+            </div>
+
+            <div id="nday-input" class="flex gap-2 items-end" {% if mode != 'nday' %}style="display:none"{% endif %}>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">天數</label>
+                    <input type="number" name="n" value="{{ n_val }}" min="1" max="200" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-20">
+                </div>
+            </div>
+
+            <button type="submit" class="bg-indigo-600 text-white px-4 py-1.5 rounded text-sm hover:bg-indigo-700 transition">更新</button>
+        </div>
+
+        <!-- 族群選擇 -->
+        <div class="flex items-center gap-2 pt-2 border-t border-gray-200">
+            <label class="text-xs text-gray-500">查看族群明細：</label>
+            <select name="sector" onchange="this.form.submit()" class="border border-gray-300 rounded px-3 py-1.5 text-sm max-w-xs">
+                <option value="">— 不選取 —</option>
+                {% for s in all_sectors %}
+                <option value="{{ s }}" {% if selected_sector == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </form>
+
+    <!-- 兩張大圖 -->
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
+        <div class="border border-gray-100 rounded-lg p-2 bg-white shadow-sm">
+            {{ abs_chart|safe }}
+        </div>
+        <div class="border border-gray-100 rounded-lg p-2 bg-white shadow-sm">
+            {{ pct_chart|safe }}
+        </div>
+    </div>
+
+    <!-- 族群每日明細 -->
+    {% if selected_sector and detail_rows %}
+    <div class="border-t pt-6">
+        <h2 class="text-lg font-bold text-gray-800 mb-4">{{ selected_sector }} — 每日明細 ({{ curr_label }})</h2>
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm border-collapse">
+                <thead>
+                    <tr class="bg-gray-100 text-gray-600 uppercase text-xs leading-normal">
+                        <th class="py-3 px-4 text-left">日期</th>
+                        <th class="py-3 px-4 text-right">當日成交金額</th>
+                        <th class="py-3 px-4 text-right">前日成交金額</th>
+                        <th class="py-3 px-4 text-right">絕對增減</th>
+                        <th class="py-3 px-4 text-right">增減%</th>
+                        <th class="py-3 px-4 text-right">絕對值排名</th>
+                        <th class="py-3 px-4 text-right">%排名</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600 text-sm">
+                    {% for r in detail_rows %}
+                    <tr class="border-b border-gray-100 hover:bg-gray-50 transition">
+                        <td class="py-2.5 px-4 text-left font-medium">{{ r.date }}</td>
+                        <td class="py-2.5 px-4 text-right">{{ r.curr_val|floatformat:0 }}</td>
+                        <td class="py-2.5 px-4 text-right">{{ r.prev_val|floatformat:0 }}</td>
+                        <td class="py-2.5 px-4 text-right {% if r.abs_change >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                            {{ r.abs_change|floatformat:0 }}
+                        </td>
+                        <td class="py-2.5 px-4 text-right {% if r.pct_change >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                            {{ r.pct_change|floatformat:2 }}%
+                        </td>
+                        <td class="py-2.5 px-4 text-right">{{ r.abs_rank }}</td>
+                        <td class="py-2.5 px-4 text-right">{{ r.pct_rank }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+</div>
+
+<script>
+document.querySelector('select[name="mode"]').addEventListener('change', function() {
+    document.getElementById('single-input').style.display = this.value === 'single' ? 'flex' : 'none';
+    document.getElementById('range-input').style.display = this.value === 'range' ? 'flex' : 'none';
+    document.getElementById('nday-input').style.display = this.value === 'nday' ? 'flex' : 'none';
+});
+</script>
+{% endblock %}

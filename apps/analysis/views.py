@@ -351,6 +351,273 @@ def sector_detail_ajax(request, stock_id):
     return JsonResponse(details)
 
 
+def trade_value_ranking_view(request):
+    """成交金額增減排行榜：氣泡圖 + 族群每日明細"""
+    from datetime import date, timedelta
+    import plotly.graph_objects as go
+    import pandas as pd
+    import numpy as np
+
+    # ── 1. 取得所有交易日 ──
+    all_dates = list(DailyPrice.objects.order_by('-date').values_list('date', flat=True).distinct())
+    if not all_dates:
+        return render(request, 'analysis/trade_value_ranking.html', {'error': '無股價資料'})
+
+    latest_date = all_dates[0]
+    all_asc = sorted(all_dates)
+    all_set = set(all_dates)
+
+    # ── 2. 解析參數 ──
+    mode = request.GET.get('mode', 'single')
+    selected_sector = request.GET.get('sector', '').strip()
+
+    curr_dates = []
+    prev_dates = []
+    curr_label = ''
+
+    if mode == 'single':
+        raw = request.GET.get('date', str(latest_date))
+        try:
+            td = date.fromisoformat(raw)
+        except ValueError:
+            td = latest_date
+        if td not in all_set:
+            td = latest_date
+        curr_dates = [td]
+        prev_candidates = [d for d in all_dates if d < td]
+        prev_dates = [prev_candidates[0]] if prev_candidates else []
+        curr_label = str(td)
+
+    elif mode == 'range':
+        df_str = request.GET.get('date_from', '')
+        dt_str = request.GET.get('date_to', '')
+        try:
+            df = date.fromisoformat(df_str) if df_str else all_asc[0]
+        except ValueError:
+            df = all_asc[0]
+        try:
+            dt = date.fromisoformat(dt_str) if dt_str else latest_date
+        except ValueError:
+            dt = latest_date
+        if dt > latest_date:
+            dt = latest_date
+        if df < all_asc[0]:
+            df = all_asc[0]
+        if df > dt:
+            df, dt = dt, df
+        curr_dates = sorted([d for d in all_asc if df <= d <= dt])
+        trading_before = sorted([d for d in all_asc if d < df], reverse=True)
+        prev_dates = trading_before[:len(curr_dates)]
+        curr_label = f'{df} ~ {dt}'
+
+    else:  # nday
+        n_str = request.GET.get('n', '20')
+        try:
+            n = max(1, int(n_str))
+        except ValueError:
+            n = 20
+        latest_idx = all_asc.index(latest_date)
+        curr_start = max(0, latest_idx - n + 1)
+        curr_dates = all_asc[curr_start:latest_idx + 1]
+        prev_end = curr_start - 1
+        prev_start = max(0, prev_end - n + 1)
+        prev_dates = all_asc[prev_start:prev_end + 1] if prev_end >= 0 else []
+        curr_label = f'近 {n} 日'
+
+    if not curr_dates:
+        return render(request, 'analysis/trade_value_ranking.html', {'error': '無有效的日期區間'})
+
+    # ── 3. 建立 stock → sector 對照 ──
+    sq = StockSector.objects.filter(
+        sector__isnull=False
+    ).select_related('sector').values('stock_id', 'sector__name')
+    stock_to_sector = {}
+    bad_names = {'#REF!', '0', '', 'IC�˴�', '��L', '�u���', '������', '���q'}
+    for rec in sq:
+        nm = rec['sector__name']
+        if nm and nm not in bad_names:
+            stock_to_sector[rec['stock_id']] = nm
+
+    # ── 4. 撈 DailyPrice ──
+    all_needed = sorted(set(curr_dates + prev_dates))
+    prices = DailyPrice.objects.filter(
+        date__in=all_needed,
+        trade_value__isnull=False,
+        trade_value__gt=0,
+    ).values('date', 'stock_id', 'trade_value')
+
+    if not prices:
+        return render(request, 'analysis/trade_value_ranking.html', {'error': '無成交金額資料'})
+
+    df = pd.DataFrame(list(prices))
+    df['sector'] = df['stock_id'].map(stock_to_sector)
+    df = df[df['sector'].notna()].copy()
+    if df.empty:
+        return render(request, 'analysis/trade_value_ranking.html', {'error': '無族群分類資料'})
+    df['trade_value'] = df['trade_value'].astype(float)
+
+    # ── 5. 每日 × 族群 匯總 ──
+    daily_sector = df.groupby(['date', 'sector'], as_index=False)['trade_value'].sum()
+
+    # ── 6. 計算區間增減 ──
+    curr_agg = daily_sector[daily_sector['date'].isin(curr_dates)].groupby('sector', as_index=False)['trade_value'].sum()
+    prev_agg = daily_sector[daily_sector['date'].isin(prev_dates)].groupby('sector', as_index=False)['trade_value'].sum()
+    curr_agg.columns = ['sector', 'curr_val']
+    prev_agg.columns = ['sector', 'prev_val']
+
+    merged = pd.merge(curr_agg, prev_agg, on='sector', how='left').fillna(0)
+    merged['abs_change'] = merged['curr_val'] - merged['prev_val']
+    merged['pct_change'] = np.where(
+        merged['prev_val'] > 0,
+        (merged['abs_change'] / merged['prev_val']) * 100,
+        0.0
+    )
+    # 排除兩個期間都沒資料的
+    merged = merged[(merged['curr_val'] > 0) | (merged['prev_val'] > 0)].copy()
+
+    if merged.empty:
+        return render(request, 'analysis/trade_value_ranking.html', {'error': '計算後無有效資料'})
+
+    # ── 7. 排序 ──
+    abs_sorted = merged.sort_values('abs_change', ascending=False).reset_index(drop=True)
+    pct_sorted = merged.sort_values('pct_change', ascending=False).reset_index(drop=True)
+    abs_sorted['rank'] = range(1, len(abs_sorted) + 1)
+    pct_sorted['rank'] = range(1, len(pct_sorted) + 1)
+
+    # ── 8. 畫 Treemap 矩形樹狀圖（只取前 50 名避免太擠） ──
+    def _treemap_chart(sorted_df, val_col, fmt, title):
+        df = sorted_df.head(50).copy() if len(sorted_df) > 50 else sorted_df
+        vals = df[val_col].tolist()
+        labels = df['sector'].tolist()
+
+        sizes = [abs(v) for v in vals]
+        colors = ['#22c55e' if v >= 0 else '#ef4444' for v in vals]
+        text_vals = [fmt.format(v=v) for v in vals]
+
+        fig = go.Figure()
+        fig.add_trace(go.Treemap(
+            labels=labels,
+            parents=[''] * len(labels),
+            values=sizes,
+            marker=dict(
+                colors=colors,
+                line=dict(width=1.5, color='rgba(255,255,255,0.6)'),
+                pad=dict(t=3, l=3, r=3, b=3),
+            ),
+            text=text_vals,
+            textinfo='label+text',
+            textfont=dict(size=15, color='white', family='Arial Black'),
+            hovertemplate='<b>%{label}</b><br>%{customdata}<extra></extra>',
+            customdata=[[v] for v in text_vals],
+            branchvalues='total',
+            tiling=dict(packing='squarify', pad=3),
+        ))
+
+        fig.update_layout(
+            title=dict(text=title, font=dict(size=18, color='#1f2937')),
+            height=520,
+            margin=dict(l=5, r=5, t=50, b=5),
+            paper_bgcolor='white',
+            hoverlabel=dict(bgcolor='#1f2937', font_size=13, font_color='white'),
+        )
+        return fig.to_html(full_html=False, include_plotlyjs=False)
+
+    abs_chart = _treemap_chart(
+        abs_sorted, 'abs_change', '{v:+,.0f}',
+        f'成交金額增減（絕對值）— {curr_label}'
+    )
+    pct_chart = _treemap_chart(
+        pct_sorted, 'pct_change', '{v:+.2f}%',
+        f'成交金額增減（%）— {curr_label}'
+    )
+
+    # ── 9. 族群每日明細（當選定族群時） ──
+    all_sectors = sorted(merged['sector'].unique().tolist())
+    detail_rows = []
+
+    if selected_sector and selected_sector in merged['sector'].values:
+        for d in sorted(curr_dates):
+            day_df = daily_sector[daily_sector['date'] == d].copy()
+            if day_df.empty:
+                continue
+
+            # 找到前一個交易日
+            prev_d = None
+            for pd_candidate in all_dates:
+                if pd_candidate < d:
+                    prev_d = pd_candidate
+                    break
+
+            s_row = day_df[day_df['sector'] == selected_sector]
+            if s_row.empty:
+                continue
+            curr_val = s_row['trade_value'].iloc[0]
+
+            if prev_d:
+                prev_day_df = daily_sector[(daily_sector['date'] == prev_d) & (daily_sector['sector'] == selected_sector)]
+                prev_val = prev_day_df['trade_value'].iloc[0] if not prev_day_df.empty else 0.0
+            else:
+                prev_val = 0.0
+
+            abs_ch = curr_val - prev_val
+            pct_ch = (abs_ch / prev_val * 100) if prev_val > 0 else 0.0
+
+            # 計算當日所有族群的排名
+            if prev_d:
+                day_merged = pd.merge(
+                    day_df[['sector', 'trade_value']].rename(columns={'trade_value': 'curr'}),
+                    daily_sector[daily_sector['date'] == prev_d][['sector', 'trade_value']].rename(columns={'trade_value': 'prev'}),
+                    on='sector', how='left'
+                ).fillna(0)
+                day_merged['abs'] = day_merged['curr'] - day_merged['prev']
+                day_merged['pct'] = np.where(
+                    day_merged['prev'] > 0,
+                    (day_merged['abs'] / day_merged['prev']) * 100,
+                    0.0
+                )
+                day_merged['abs_rk'] = day_merged['abs'].rank(ascending=False, method='min').astype(int)
+                day_merged['pct_rk'] = day_merged['pct'].rank(ascending=False, method='min').astype(int)
+
+                r = day_merged[day_merged['sector'] == selected_sector].iloc[0]
+                detail_rows.append({
+                    'date': d,
+                    'curr_val': curr_val,
+                    'prev_val': prev_val,
+                    'abs_change': abs_ch,
+                    'pct_change': pct_ch,
+                    'abs_rank': int(r['abs_rk']),
+                    'pct_rank': int(r['pct_rk']),
+                })
+            else:
+                detail_rows.append({
+                    'date': d,
+                    'curr_val': curr_val,
+                    'prev_val': prev_val,
+                    'abs_change': abs_ch,
+                    'pct_change': pct_ch,
+                    'abs_rank': '-',
+                    'pct_rank': '-',
+                })
+
+    context = {
+        'error': '',
+        'mode': mode,
+        'curr_label': curr_label,
+        'latest_date': latest_date,
+        'all_dates': all_dates[:60],
+        'all_sectors': all_sectors,
+        'selected_sector': selected_sector,
+        'date_val': request.GET.get('date', str(latest_date)),
+        'date_from': request.GET.get('date_from', ''),
+        'date_to': request.GET.get('date_to', ''),
+        'n_val': request.GET.get('n', '20'),
+        'abs_chart': abs_chart,
+        'pct_chart': pct_chart,
+        'detail_rows': detail_rows,
+    }
+    return render(request, 'analysis/trade_value_ranking.html', context)
+
+
 def buy_pool_view(request):
     """選股掃描結果 (Buy Pool) 頁面"""
     from django.core.paginator import Paginator

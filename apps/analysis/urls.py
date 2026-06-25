@@ -7,6 +7,7 @@ urlpatterns = [
     path('breadth/', views.market_breadth_view, name='market_breadth'),
     path('market-cap-ranking/', views.market_cap_ranking_view, name='market_cap_ranking'),
     path('divergence/', views.sector_divergence_view, name='divergence'),
+    path('trade-value-ranking/', views.trade_value_ranking_view, name='trade_value_ranking'),
     path('buy-pool/', views.buy_pool_view, name='buy_pool'),
     path('calc-divergence/', views.calc_divergence_view, name='calc_divergence'),
     path('sector/<str:sector_name>/', views.sector_detail_view, name='sector_detail'),
