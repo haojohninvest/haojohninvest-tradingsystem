@@ -512,16 +512,22 @@ def trade_value_ranking_view(request):
         yesterday_abs = yd
 
     # ── 10. 畫 Treemap ──
-    def _treemap_chart(df_subset, val_col, fmt, title, chart_id, colors_list=None):
-        """df_subset: 已篩選好前 N 名的 DataFrame"""
+    def _treemap_chart(df_subset, val_col, fmt, title, chart_id, colors_list=None, mcap_pct_map=None):
+        """df_subset: 已篩選好前 N 名的 DataFrame
+           mcap_pct_map: dict {sector: mcap_change_pct} 用於顯示市值變化%
+        """
         if df_subset.empty:
             return None
         vals = df_subset[val_col].tolist()
         labels = df_subset['sector'].tolist()
         sizes = [abs(v) for v in vals]
-        text_vals = [fmt.format(v=v) for v in vals]
         if colors_list is None:
             colors_list = ['#6b7280'] * len(labels)
+        text_templates = []
+        for i, s in enumerate(labels):
+            main_txt = fmt.format(v=vals[i])
+            pct_val = mcap_pct_map.get(s, 0) if mcap_pct_map else 0
+            text_templates.append(f'%{{label}}<br>{main_txt}<br><br>市值 {pct_val:+.2f}%')
 
         fig = go.Figure()
         fig.add_trace(go.Treemap(
@@ -531,11 +537,10 @@ def trade_value_ranking_view(request):
                 line=dict(width=1.5, color='rgba(255,255,255,0.6)'),
                 pad=dict(t=3, l=3, r=3, b=3),
             ),
-            text=text_vals,
-            textinfo='label+text',
-            textfont=dict(size=15, color='white', family='Arial Black'),
+            texttemplate=text_templates,
+            textfont=dict(size=18, color='white', family='Arial Black'),
             hovertemplate='<b>%{label}</b><br>%{customdata}<extra></extra>',
-            customdata=[[v] for v in text_vals],
+            customdata=[[v] for v in text_templates],
             branchvalues='total', tiling=dict(packing='squarify', pad=3), ids=labels,
         ))
         fig.update_layout(
@@ -563,107 +568,239 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
 
     data_date_str = curr_label
 
-    # TOP-LEFT: 區間絕對增減（正值，前 25）
-    top_left_df = abs_sorted[abs_sorted['abs_change'] > 0].head(25).copy()
+    # ── 10a. 單日模式：全新四張 Tree 圖表 ──
+    chart1 = chart2 = chart3 = chart4 = None
+    if mode == 'single':
+        # 計算 Chart 1 所需排名
+        todays_active = merged[merged['curr_val'] > 0].copy()
+        todays_active['curr_rank'] = todays_active['curr_val'].rank(ascending=False, method='min')
+        prevday_active = merged[merged['prev_val'] > 0].copy()
+        prevday_active['prev_rank'] = prevday_active['prev_val'].rank(ascending=False, method='min')
+        merged = merged.merge(todays_active[['sector', 'curr_rank']], on='sector', how='left')
+        merged = merged.merge(prevday_active[['sector', 'prev_rank']], on='sector', how='left')
 
-    # 比對右上 top5，在左上標黃色
-    highlight_map = {}
-    if yesterday_abs is not None:
-        top5_yesterday = set(yesterday_abs.head(5)['sector'].tolist())
-        top5_period = set(top_left_df.head(5)['sector'].tolist())
-        new_in_top5 = top5_yesterday - top5_period
-        for s in top_left_df['sector']:
-            highlight_map[s] = '#eab308' if s in new_in_top5 else '#6b7280'
-    top_left_colors = [highlight_map.get(s, '#6b7280') for s in top_left_df['sector']]
-    top_left_date_str = f'（{data_date_str}）'
+        # 準備各圖表資料
+        chart1_data = merged.sort_values('curr_val', ascending=False).head(25).copy()
+        chart2_data = merged.sort_values('abs_change', ascending=False).head(25).copy()
+        chart3_data = None
+        if yesterday_abs is not None:
+            chart3_data = yesterday_abs.head(25).copy()
+        chart4_data = chart2_data.copy()  # 與 Chart 2 相同順序
 
-    abs_top_left = _treemap_chart(
-        top_left_df, 'abs_change', '{v:+,.0f}',
-        f'區間絕對增減 {top_left_date_str}', 'abs-top-left',
-        colors_list=top_left_colors,
-    )
+        # 收集所有圖表用到的產業
+        all_chart_sectors = set(chart1_data['sector'].tolist())
+        all_chart_sectors.update(chart2_data['sector'].tolist())
+        if chart3_data is not None:
+            all_chart_sectors.update(chart3_data['sector'].tolist())
 
-    # TOP-RIGHT: 前一日單日絕對增減（正值，前 25）
-    abs_top_right = None
-    if yesterday_abs is not None:
-        yd_pos = yesterday_abs[yesterday_abs['abs_change'] > 0].head(25).copy()
-        abs_top_right = _treemap_chart(
-            yd_pos, 'abs_change', '{v:+,.0f}',
-            f'前日絕對增減 {top_left_date_str}', 'abs-top-right',
-        )
-
-    # BOTTOM-LEFT: 以絕對值排序的族群 % 增減（取前 25 大絕對變動）, >100% 標黃
-    bl_df = abs_sorted.head(25).copy()
-    bl_colors = ['#eab308' if v > 100 else '#6b7280' for v in bl_df['pct_change']]
-    pct_by_abs = _treemap_chart(
-        bl_df, 'pct_change', '{v:+.2f}%',
-        f'%增減（依絕對值排序） {top_left_date_str}', 'pct-by-abs',
-        colors_list=bl_colors,
-    )
-
-    # BOTTOM-RIGHT: 產業市值變化（區間首尾差），取 tree 上有出現的產業
-    import bisect
-    br_sectors = set()
-    if not top_left_df.empty:
-        br_sectors.update(top_left_df['sector'].tolist())
-    if abs_top_right is not None and yesterday_abs is not None:
-        br_sectors.update(yesterday_abs.head(25)['sector'].tolist())
-
-    br_cap_change = None
-    if br_sectors and curr_dates:
-        start_date = min(curr_dates)
-        end_date = max(curr_dates)
-        # 取得這些產業的所有 stock_id
-        ss_records = StockSector.objects.filter(
-            sector__name__in=list(br_sectors)
-        ).select_related('sector').values('stock_id', 'sector__name')
-        sector_of_stock = {}
-        stock_ids = set()
-        for rec in ss_records:
-            sector_of_stock[rec['stock_id']] = rec['sector__name']
-            stock_ids.add(rec['stock_id'])
-
-        if stock_ids:
-            # 取得股價
+        # ── 計算市值變化 % ──
+        def _calc_mcap_pct(sectors, d_from, d_to):
+            ss_recs = StockSector.objects.filter(
+                sector__name__in=list(sectors)
+            ).select_related('sector').values('stock_id', 'sector__name')
+            sec_of_stk = {}
+            stk_ids = set()
+            for r in ss_recs:
+                sec_of_stk[r['stock_id']] = r['sector__name']
+                stk_ids.add(r['stock_id'])
+            if not stk_ids:
+                return {}
             prices_qs = DailyPrice.objects.filter(
-                stock_id__in=list(stock_ids),
-                date__in=[start_date, end_date],
+                stock_id__in=list(stk_ids),
+                date__in=[d_from, d_to],
                 close__isnull=False,
             ).values('stock_id', 'date', 'close')
             df_p = pd.DataFrame(list(prices_qs))
             df_p['close'] = df_p['close'].astype(float)
-
-            # 取得股數
-            shares_records = StockSharesHistory.objects.filter(
-                stock_id__in=list(stock_ids),
-                date__lte=end_date,
+            shares_qs = StockSharesHistory.objects.filter(
+                stock_id__in=list(stk_ids),
+                date__lte=d_to,
             ).order_by('stock_id', '-date').values('stock_id', 'date', 'outstanding_shares')
-            shares_map = {}
-            for rec in shares_records:
-                sid = rec['stock_id']
-                if sid not in shares_map:
-                    shares_map[sid] = rec['outstanding_shares'] or 0
-
-            df_p['shares'] = df_p['stock_id'].map(shares_map).fillna(0)
+            shr_map = {}
+            for r in shares_qs:
+                if r['stock_id'] not in shr_map:
+                    shr_map[r['stock_id']] = r['outstanding_shares'] or 0
+            df_p['shares'] = df_p['stock_id'].map(shr_map).fillna(0)
             df_p['mcap'] = df_p['close'] * df_p['shares']
-            df_p['sector'] = df_p['stock_id'].map(sector_of_stock)
+            df_p['sector'] = df_p['stock_id'].map(sec_of_stk)
+            cap_day = df_p.groupby(['date', 'sector'], as_index=False)['mcap'].sum()
+            cap_a = cap_day[cap_day['date'] == d_from][['sector', 'mcap']].rename(columns={'mcap': 'mcap_a'})
+            cap_b = cap_day[cap_day['date'] == d_to][['sector', 'mcap']].rename(columns={'mcap': 'mcap_b'})
+            cap_m = pd.merge(cap_b, cap_a, on='sector', how='left').fillna(0)
+            cap_m['pct'] = np.where(
+                cap_m['mcap_a'] > 0,
+                (cap_m['mcap_b'] - cap_m['mcap_a']) / cap_m['mcap_a'] * 100,
+                0.0
+            )
+            return dict(zip(cap_m['sector'], cap_m['pct']))
 
-            # 匯總 per (date, sector)
-            cap_daily = df_p.groupby(['date', 'sector'], as_index=False)['mcap'].sum()
-            cap_start = cap_daily[cap_daily['date'] == start_date][['sector', 'mcap']].rename(columns={'mcap': 'start_cap'})
-            cap_end = cap_daily[cap_daily['date'] == end_date][['sector', 'mcap']].rename(columns={'mcap': 'end_cap'})
-            cap_merged = pd.merge(cap_end, cap_start, on='sector', how='left').fillna(0)
-            cap_merged['cap_change'] = cap_merged['end_cap'] - cap_merged['start_cap']
-            cap_merged = cap_merged.sort_values('cap_change', ascending=False).reset_index(drop=True)
-            br_cap_change = cap_merged
+        td_date = curr_dates[0] if curr_dates else None
+        prev_date = prev_dates[0] if prev_dates else None
+        mcap_pct_td = {}  # prev_day → td
+        mcap_pct_yd = {}  # prev_prev_day → prev_day
+        if td_date and prev_date:
+            mcap_pct_td = _calc_mcap_pct(all_chart_sectors, prev_date, td_date)
+            if yd_curr_date and yd_prev_date:
+                mcap_pct_yd = _calc_mcap_pct(all_chart_sectors, yd_prev_date, yd_curr_date)
 
-    br_mcap = None
-    if br_cap_change is not None:
-        br_df = br_cap_change.head(25).copy()
-        br_mcap = _treemap_chart(
-            br_df, 'cap_change', '{v:+,.0f}',
-            f'產業市值變化（首尾差） {top_left_date_str}', 'br-mcap',
+        # ── Chart 1: 當日成交金額絕對值 ──
+        chart1_top5 = set(chart1_data.head(5)['sector'].tolist())
+        chart2_top5 = set(chart2_data.head(5)['sector'].tolist())
+        c1_colors = []
+        for _, row in chart1_data.iterrows():
+            cr = row.get('curr_rank')
+            pr = row.get('prev_rank')
+            if cr is not None and pr is not None and cr < pr and row['sector'] in chart2_top5:
+                c1_colors.append('#eab308')
+            else:
+                c1_colors.append('#6b7280')
+        for i, s in enumerate(chart1_data['sector']):
+            if c1_colors[i] != '#6b7280' and mcap_pct_td.get(s, 0) > 0:
+                c1_colors[i] = '#dc2626'
+
+        chart1 = _treemap_chart(
+            chart1_data, 'curr_val', '{v:,.0f}',
+            f'當日成交金額（{data_date_str}）', 'chart1',
+            colors_list=c1_colors, mcap_pct_map=mcap_pct_td,
         )
+
+        # ── Chart 2: 當日成交金額絕對值的變化 ──
+        chart3_top5 = set()
+        if chart3_data is not None:
+            chart3_top5 = set(chart3_data.head(5)['sector'].tolist())
+        c2_colors = []
+        for i, row in chart2_data.iterrows():
+            color = '#6b7280'
+            if i < 5:
+                color = '#ec4899'
+                if row['sector'] not in chart3_top5:
+                    color = '#eab308'
+            c2_colors.append(color)
+        for i, s in enumerate(chart2_data['sector']):
+            if c2_colors[i] != '#6b7280' and mcap_pct_td.get(s, 0) > 0:
+                c2_colors[i] = '#dc2626'
+
+        chart2 = _treemap_chart(
+            chart2_data, 'abs_change', '{v:+,.0f}',
+            f'當日成交金額變化（{data_date_str}）', 'chart2',
+            colors_list=c2_colors, mcap_pct_map=mcap_pct_td,
+        )
+
+        # ── Chart 3: 前一個交易日成交金額絕對值的變化 ──
+        if chart3_data is not None:
+            chart3 = _treemap_chart(
+                chart3_data, 'abs_change', '{v:+,.0f}',
+                f'前日成交金額變化（{data_date_str}）', 'chart3',
+                mcap_pct_map=mcap_pct_yd,
+            )
+
+        # ── Chart 4: 當日成交金額變化百分比 ──
+        c4_colors = []
+        for v in chart4_data['pct_change']:
+            if v > 100:
+                c4_colors.append('#eab308')
+            else:
+                c4_colors.append('#6b7280')
+        for i, s in enumerate(chart4_data['sector']):
+            if c4_colors[i] != '#6b7280' and mcap_pct_td.get(s, 0) > 0 and s in (chart1_top5 | chart2_top5):
+                c4_colors[i] = '#dc2626'
+
+        chart4 = _treemap_chart(
+            chart4_data, 'pct_change', '{v:+.2f}%',
+            f'當日成交金額變化%（{data_date_str}）', 'chart4',
+            colors_list=c4_colors, mcap_pct_map=mcap_pct_td,
+        )
+
+        abs_top_left = abs_top_right = pct_by_abs = br_mcap = None
+
+    else:
+        # ── 非單日模式：維持原有邏輯 ──
+        top_left_df = abs_sorted[abs_sorted['abs_change'] > 0].head(25).copy()
+        highlight_map = {}
+        if yesterday_abs is not None:
+            top5_yesterday = set(yesterday_abs.head(5)['sector'].tolist())
+            top5_period = set(top_left_df.head(5)['sector'].tolist())
+            new_in_top5 = top5_yesterday - top5_period
+            for s in top_left_df['sector']:
+                highlight_map[s] = '#eab308' if s in new_in_top5 else '#6b7280'
+        top_left_colors = [highlight_map.get(s, '#6b7280') for s in top_left_df['sector']]
+        top_left_date_str = f'（{data_date_str}）'
+
+        abs_top_left = _treemap_chart(
+            top_left_df, 'abs_change', '{v:+,.0f}',
+            f'區間絕對增減 {top_left_date_str}', 'abs-top-left',
+            colors_list=top_left_colors,
+        )
+
+        abs_top_right = None
+        if yesterday_abs is not None:
+            yd_pos = yesterday_abs[yesterday_abs['abs_change'] > 0].head(25).copy()
+            abs_top_right = _treemap_chart(
+                yd_pos, 'abs_change', '{v:+,.0f}',
+                f'前日絕對增減 {top_left_date_str}', 'abs-top-right',
+            )
+
+        bl_df = abs_sorted.head(25).copy()
+        bl_colors = ['#eab308' if v > 100 else '#6b7280' for v in bl_df['pct_change']]
+        pct_by_abs = _treemap_chart(
+            bl_df, 'pct_change', '{v:+.2f}%',
+            f'%增減（依絕對值排序） {top_left_date_str}', 'pct-by-abs',
+            colors_list=bl_colors,
+        )
+
+        br_sectors = set()
+        if not top_left_df.empty:
+            br_sectors.update(top_left_df['sector'].tolist())
+        if abs_top_right is not None and yesterday_abs is not None:
+            br_sectors.update(yesterday_abs.head(25)['sector'].tolist())
+
+        br_cap_change = None
+        if br_sectors and curr_dates:
+            start_date = min(curr_dates)
+            end_date = max(curr_dates)
+            ss_records = StockSector.objects.filter(
+                sector__name__in=list(br_sectors)
+            ).select_related('sector').values('stock_id', 'sector__name')
+            sector_of_stock = {}
+            stock_ids = set()
+            for rec in ss_records:
+                sector_of_stock[rec['stock_id']] = rec['sector__name']
+                stock_ids.add(rec['stock_id'])
+            if stock_ids:
+                prices_qs = DailyPrice.objects.filter(
+                    stock_id__in=list(stock_ids),
+                    date__in=[start_date, end_date],
+                    close__isnull=False,
+                ).values('stock_id', 'date', 'close')
+                df_p = pd.DataFrame(list(prices_qs))
+                df_p['close'] = df_p['close'].astype(float)
+                shares_records = StockSharesHistory.objects.filter(
+                    stock_id__in=list(stock_ids),
+                    date__lte=end_date,
+                ).order_by('stock_id', '-date').values('stock_id', 'date', 'outstanding_shares')
+                shares_map = {}
+                for rec in shares_records:
+                    sid = rec['stock_id']
+                    if sid not in shares_map:
+                        shares_map[sid] = rec['outstanding_shares'] or 0
+                df_p['shares'] = df_p['stock_id'].map(shares_map).fillna(0)
+                df_p['mcap'] = df_p['close'] * df_p['shares']
+                df_p['sector'] = df_p['stock_id'].map(sector_of_stock)
+                cap_daily = df_p.groupby(['date', 'sector'], as_index=False)['mcap'].sum()
+                cap_start = cap_daily[cap_daily['date'] == start_date][['sector', 'mcap']].rename(columns={'mcap': 'start_cap'})
+                cap_end = cap_daily[cap_daily['date'] == end_date][['sector', 'mcap']].rename(columns={'mcap': 'end_cap'})
+                cap_merged = pd.merge(cap_end, cap_start, on='sector', how='left').fillna(0)
+                cap_merged['cap_change'] = cap_merged['end_cap'] - cap_merged['start_cap']
+                cap_merged = cap_merged.sort_values('cap_change', ascending=False).reset_index(drop=True)
+                br_cap_change = cap_merged
+
+        br_mcap = None
+        if br_cap_change is not None:
+            br_df = br_cap_change.head(25).copy()
+            br_mcap = _treemap_chart(
+                br_df, 'cap_change', '{v:+,.0f}',
+                f'產業市值變化（首尾差） {top_left_date_str}', 'br-mcap',
+            )
 
     # ── 9. 族群每日明細（當選定族群時） ──
     all_sectors = sorted(merged['sector'].unique().tolist())
@@ -820,6 +957,10 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
         'date_from': request.GET.get('date_from', ''),
         'date_to': request.GET.get('date_to', ''),
         'n_val': request.GET.get('n', '20'),
+        'chart1': chart1,
+        'chart2': chart2,
+        'chart3': chart3,
+        'chart4': chart4,
         'abs_top_left': abs_top_left,
         'abs_top_right': abs_top_right,
         'pct_by_abs': pct_by_abs,
