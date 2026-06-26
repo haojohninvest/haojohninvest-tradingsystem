@@ -645,12 +645,12 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
 
         # ── Chart 1: 當日成交金額絕對值 ──
         chart1_top5 = set(chart1_data.head(5)['sector'].tolist())
-        chart2_top5 = set(chart2_data.head(5)['sector'].tolist())
+        chart2_top3 = set(chart2_data.head(3)['sector'].tolist())
         c1_colors = []
         for _, row in chart1_data.iterrows():
             cr = row.get('curr_rank')
             pr = row.get('prev_rank')
-            if cr is not None and pr is not None and cr < pr and row['sector'] in chart2_top5:
+            if cr is not None and pr is not None and cr < pr and row['sector'] in chart2_top3:
                 c1_colors.append('#eab308')
             else:
                 c1_colors.append('#6b7280')
@@ -669,16 +669,15 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
         if chart3_data is not None:
             chart3_top5 = set(chart3_data.head(5)['sector'].tolist())
         c2_colors = []
-        for i, row in chart2_data.iterrows():
-            color = '#6b7280'
-            if i < 5:
-                color = '#ec4899'
-                if row['sector'] not in chart3_top5:
-                    color = '#eab308'
-            c2_colors.append(color)
-        for i, s in enumerate(chart2_data['sector']):
-            if c2_colors[i] != '#6b7280' and mcap_pct_td.get(s, 0) > 0:
-                c2_colors[i] = '#dc2626'
+        for pos in range(len(chart2_data)):
+            row = chart2_data.iloc[pos]
+            if pos < 5 and row['sector'] not in chart3_top5:
+                c2_colors.append('#eab308')
+            else:
+                c2_colors.append('#6b7280')
+        for pos, s in enumerate(chart2_data['sector']):
+            if c2_colors[pos] != '#6b7280' and mcap_pct_td.get(s, 0) > 0:
+                c2_colors[pos] = '#dc2626'
 
         chart2 = _treemap_chart(
             chart2_data, 'abs_change', '{v:+,.0f}',
@@ -695,14 +694,16 @@ document.getElementById('{chart_id}').on('plotly_click', function(data) {{
             )
 
         # ── Chart 4: 當日成交金額變化百分比 ──
+        chart2_top5 = set(chart2_data.head(5)['sector'].tolist())
         c4_colors = []
-        for v in chart4_data['pct_change']:
-            if v > 100:
+        for i, s in enumerate(chart4_data['sector']):
+            v = chart4_data['pct_change'].iloc[i]
+            if v > 100 and s in (chart1_top5 | chart2_top5):
                 c4_colors.append('#eab308')
             else:
                 c4_colors.append('#6b7280')
         for i, s in enumerate(chart4_data['sector']):
-            if c4_colors[i] != '#6b7280' and mcap_pct_td.get(s, 0) > 0 and s in (chart1_top5 | chart2_top5):
+            if c4_colors[i] != '#6b7280' and mcap_pct_td.get(s, 0) > 0:
                 c4_colors[i] = '#dc2626'
 
         chart4 = _treemap_chart(
