@@ -1,0 +1,209 @@
+{% extends 'base.html' %}
+{% load buypool_filters %}
+
+{% block title %}模擬選股結果 (Simulation) - 豪強資本交易系統{% endblock %}
+
+{% block content %}
+<div class="bg-white rounded-xl shadow-md p-6 mb-8">
+    <div class="flex justify-between items-center mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-800">模擬選股結果 (Simulation)</h1>
+            <p class="text-sm text-gray-500 mt-1">
+                模擬全市場漲 N% 後的 Buy Pool 入選情況 | 共 <span class="font-bold text-indigo-600">{{ total_count }}</span> 筆
+            </p>
+        </div>
+    </div>
+
+    <form method="GET" class="mb-6 flex flex-wrap gap-3 items-end bg-gray-50 p-4 rounded-lg">
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">日期起</label>
+            <input type="date" name="date_from" value="{{ date_from }}" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">日期迄</label>
+            <input type="date" name="date_to" value="{{ date_to }}" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">搜尋</label>
+            <input type="text" name="search" value="{{ search }}" placeholder="代號/名稱" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-32">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">情境</label>
+            <select name="scenario" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+                <option value="">全部</option>
+                <option value="A" {% if scenario_filter == 'A' %}selected{% endif %}>情境 A</option>
+                <option value="B" {% if scenario_filter == 'B' %}selected{% endif %}>情境 B</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">首次R日期</label>
+            <select name="first_r_date" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+                <option value="">全部</option>
+                <option value="true" {% if first_r_date_filter == 'true' %}selected{% endif %}>是 (首次)</option>
+                <option value="false" {% if first_r_date_filter == 'false' %}selected{% endif %}>否 (非首次)</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">市值 >= (億)</label>
+            <input type="number" name="market_cap_min" value="{{ market_cap_min_str }}" placeholder="150" min="0" class="border border-gray-300 rounded px-3 py-1.5 text-sm w-24">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">模擬漲幅</label>
+            <select name="simulation_pct" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+                <option value="">全部</option>
+                {% for pct in available_sim_pcts %}
+                <option value="{{ pct }}" {% if sim_pct_filter == pct|stringformat:'s' %}selected{% endif %}>+{{ pct }}%</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">排序</label>
+            <select name="sort" class="border border-gray-300 rounded px-3 py-1.5 text-sm">
+                <option value="-date" {% if sort_by == '-date' %}selected{% endif %}>買入日 (新→舊)</option>
+                <option value="date" {% if sort_by == 'date' %}selected{% endif %}>買入日 (舊→新)</option>
+                <option value="stock_code" {% if sort_by == 'stock_code' %}selected{% endif %}>代號</option>
+                <option value="r20" {% if sort_by == 'r20' %}selected{% endif %}>R20 (小→大)</option>
+                <option value="-r20" {% if sort_by == '-r20' %}selected{% endif %}>R20 (大→小)</option>
+                <option value="-market_cap" {% if sort_by == '-market_cap' %}selected{% endif %}>市值 (大→小)</option>
+                <option value="return_rate" {% if sort_by == 'return_rate' %}selected{% endif %}>報酬率 (小→大)</option>
+                <option value="-return_rate" {% if sort_by == '-return_rate' %}selected{% endif %}>報酬率 (大→小)</option>
+            </select>
+        </div>
+        <button type="submit" class="bg-indigo-600 text-white px-4 py-1.5 rounded text-sm hover:bg-indigo-700">篩選</button>
+        <a href="{% url 'analysis:buy_pool_simulation' %}" class="text-gray-500 text-sm py-1.5 hover:text-gray-700">清除</a>
+    </form>
+
+    {% if page_obj %}
+    <div id="top-scroll" style="overflow-x:auto; overflow-y:hidden; height:18px; display:none;">
+        <div id="top-scroll-inner" style="height:1px;"></div>
+    </div>
+    <div class="overflow-x-auto" id="table-wrapper">
+        <table class="min-w-full border-collapse text-sm" id="buy-pool-table">
+            <thead>
+                <tr class="bg-gray-50 border-b border-gray-200">
+                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">買入日</th>
+                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">代號</th>
+                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500">名稱</th>
+                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">收盤(模擬)</th>
+                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">EMA20</th>
+                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">EMA60</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">訊號</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">入池日</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">D</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">R20</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">R20_hole</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 w-10">情境</th>
+                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">市值</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">R日期</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">賣出日</th>
+                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">報酬率</th>
+                    <th class="px-3 py-2 text-right text-xs font-medium text-gray-500">最大回撤</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">模擬漲幅</th>
+                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500">族群</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-100">
+                {% for item in page_obj %}
+                <tr class="{% if is_sector_top5|dictget:item.id %}{% else %}hover:bg-indigo-50{% endif %} transition duration-150" {% if is_sector_top5|dictget:item.id %}style="background-color: #ffedd5;"{% endif %}>
+                    <td class="px-3 py-2 whitespace-nowrap text-gray-900">{{ item.date|date:"Y-m-d" }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap font-medium text-indigo-600">{{ item.stock_code }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-gray-900">{{ item.stock_name }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-right text-gray-700">{{ item.close|default:"-" }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-right text-gray-500">{{ item.ema20|default:"-" }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-right text-gray-500">{{ item.ema60|default:"-" }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center">
+                        {% if item.signal_type == 'gap' %}
+                            <span class="px-2 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700">跳空</span>
+                        {% else %}
+                            <span class="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">長紅</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center text-gray-500">{{ item.entry_date|date:"Y-m-d" }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center text-gray-500">{{ item.d }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center font-mono text-xs {% if item.r20 < 0.85 %}text-green-600 font-bold{% else %}text-gray-500{% endif %}">
+                        {{ item.r20|floatformat:3|default:"-" }}
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center font-mono text-xs text-gray-400">
+                        {{ item.r20_hole|floatformat:3|default:"-" }}
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center">
+                        <span class="px-2 py-0.5 rounded text-xs font-bold {% if item.scenario == 'A' %}bg-blue-100 text-blue-700{% else %}bg-purple-100 text-purple-700{% endif %}">
+                            {{ item.scenario }}
+                        </span>
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-right text-xs text-gray-500">
+                        {{ item.market_cap|to_yi }}
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center text-xs {% if item.first_r_date %}text-indigo-600 font-bold{% else %}text-gray-400{% endif %}">
+                        {{ item.ema20_cross_date|date:"Y-m-d"|default:"-" }}
+                        {% if item.first_r_date %}<span class="ml-1">S</span>{% endif %}
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center text-gray-500">{{ item.sell_date|date:"Y-m-d"|default:"-" }}</td>
+                    <td class="px-3 py-2 whitespace-nowrap text-right font-mono text-xs {% if item.return_rate >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                        {% if item.return_rate >= 0 %}+{% endif %}{{ item.return_rate|floatformat:2|default:"-" }}%
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-right font-mono text-xs text-red-500">
+                        {{ item.max_drawdown|floatformat:2|default:"-" }}%
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center text-xs">
+                        <span class="px-2 py-0.5 rounded text-xs font-bold bg-orange-100 text-orange-700">+{{ item.simulation_pct }}%</span>
+                    </td>
+                    <td class="px-3 py-2 whitespace-nowrap text-center text-xs text-gray-600">
+                        {{ sector_names|dictget:item.id }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if page_obj.has_other_pages %}
+    <div class="flex justify-center items-center gap-2 mt-6">
+        {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}&date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}&scenario={{ scenario_filter }}&first_r_date={{ first_r_date_filter }}&market_cap_min={{ market_cap_min_str }}&simulation_pct={{ sim_pct_filter }}&sort={{ sort_by }}" class="px-3 py-1 border rounded text-sm hover:bg-gray-100">上一頁</a>
+        {% endif %}
+        <span class="text-sm text-gray-500 px-2">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}&date_from={{ date_from }}&date_to={{ date_to }}&search={{ search }}&scenario={{ scenario_filter }}&first_r_date={{ first_r_date_filter }}&market_cap_min={{ market_cap_min_str }}&simulation_pct={{ sim_pct_filter }}&sort={{ sort_by }}" class="px-3 py-1 border rounded text-sm hover:bg-gray-100">下一頁</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+        <div class="text-center py-16 text-gray-400">
+            <p class="text-lg">尚無模擬結果</p>
+            <p class="text-sm mt-2">請先執行 python manage.py simulate_buy_pool --start_date YYYY-MM-DD --end_date YYYY-MM-DD --simulation_pct 7.0 --output-db</p>
+        </div>
+    {% endif %}
+</div>
+<script>
+(function() {
+    var wrapper = document.getElementById('table-wrapper');
+    var table = document.getElementById('buy-pool-table');
+    var topScroll = document.getElementById('top-scroll');
+    var topInner = document.getElementById('top-scroll-inner');
+    if (!wrapper || !table) return;
+
+    function sync() {
+        var tw = table.scrollWidth;
+        var ww = wrapper.clientWidth;
+        if (tw > ww) {
+            topScroll.style.display = 'block';
+            topInner.style.width = tw + 'px';
+        } else {
+            topScroll.style.display = 'none';
+        }
+    }
+
+    sync();
+    window.addEventListener('resize', sync);
+
+    topScroll.addEventListener('scroll', function() {
+        wrapper.scrollLeft = topScroll.scrollLeft;
+    });
+    wrapper.addEventListener('scroll', function() {
+        topScroll.scrollLeft = wrapper.scrollLeft;
+    });
+})();
+</script>
+{% endblock %}

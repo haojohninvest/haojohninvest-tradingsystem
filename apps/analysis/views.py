@@ -1074,3 +1074,102 @@ def buy_pool_view(request):
     }
 
     return render(request, 'analysis/buy_pool.html', context)
+
+
+def buy_pool_simulation_view(request):
+    """模擬選股結果 (BuyPoolSimulation) 頁面"""
+    from django.core.paginator import Paginator
+    from datetime import date, timedelta
+    from apps.analysis.models import BuyPoolSimulation, SectorDivergence
+
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    search = request.GET.get('search', '').strip()
+    scenario_filter = request.GET.get('scenario', '')
+    first_r_date_filter = request.GET.get('first_r_date', '')
+    market_cap_min_str = request.GET.get('market_cap_min', '')
+    sim_pct_filter = request.GET.get('simulation_pct', '')
+    sort_by = request.GET.get('sort', '-date')
+    page = request.GET.get('page', 1)
+
+    qs = BuyPoolSimulation.objects.select_related('stock__sector_mapping__sector')
+
+    from django.db.models import Max
+    latest_ids = BuyPoolSimulation.objects.values('date', 'stock_code').annotate(
+        max_id=Max('id')
+    ).values_list('max_id', flat=True)
+    qs = qs.filter(id__in=latest_ids)
+
+    if date_from:
+        qs = qs.filter(date__gte=date_from)
+    if date_to:
+        qs = qs.filter(date__lte=date_to)
+    if search:
+        qs = qs.filter(
+            models.Q(stock_code__icontains=search) | models.Q(stock_name__icontains=search)
+        )
+    if scenario_filter:
+        qs = qs.filter(scenario=scenario_filter)
+    if first_r_date_filter:
+        if first_r_date_filter == 'true':
+            qs = qs.filter(first_r_date=True)
+        elif first_r_date_filter == 'false':
+            qs = qs.filter(first_r_date=False)
+    if market_cap_min_str:
+        market_cap_min = int(market_cap_min_str) * 100_000_000
+        qs = qs.filter(market_cap__gte=market_cap_min)
+    if sim_pct_filter:
+        qs = qs.filter(simulation_pct=sim_pct_filter)
+
+    valid_sorts = ['date', '-date', 'stock_code', 'd', 'r20', 'scenario', 'market_cap', '-market_cap', '-r20', 'return_rate', '-return_rate', 'simulation_pct', '-simulation_pct']
+    if sort_by in valid_sorts:
+        qs = qs.order_by(sort_by)
+    else:
+        qs = qs.order_by('-date')
+
+    paginator = Paginator(qs, 50)
+    page_obj = paginator.get_page(page)
+
+    page_dates = {item.date for item in page_obj}
+    if page_dates:
+        date_to_top5_sectors = {}
+        for d in page_dates:
+            top5 = SectorDivergence.objects.filter(date=d).order_by('-divergence')[:5]
+            date_to_top5_sectors[d] = {r.sector_name for r in top5}
+    else:
+        date_to_top5_sectors = {}
+
+    sector_names = {}
+    is_sector_top5 = {}
+    for item in page_obj:
+        sector_name = '-'
+        try:
+            sector_name = item.stock.sector_mapping.sector.name or '-'
+        except Exception:
+            pass
+        sector_names[item.id] = sector_name
+        is_sector_top5[item.id] = (
+            item.date in date_to_top5_sectors
+            and sector_name in date_to_top5_sectors[item.date]
+        )
+
+    total_count = paginator.count
+    available_sim_pcts = list(BuyPoolSimulation.objects.values_list('simulation_pct', flat=True).distinct().order_by('simulation_pct'))
+
+    context = {
+        'page_obj': page_obj,
+        'total_count': total_count,
+        'date_from': date_from,
+        'date_to': date_to,
+        'search': search,
+        'scenario_filter': scenario_filter,
+        'first_r_date_filter': first_r_date_filter,
+        'market_cap_min_str': market_cap_min_str,
+        'sim_pct_filter': sim_pct_filter,
+        'available_sim_pcts': available_sim_pcts,
+        'sort_by': sort_by,
+        'sector_names': sector_names,
+        'is_sector_top5': is_sector_top5,
+    }
+
+    return render(request, 'analysis/buy_pool_simulation.html', context)

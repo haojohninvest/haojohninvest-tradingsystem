@@ -9,6 +9,7 @@ urlpatterns = [
     path('divergence/', views.sector_divergence_view, name='divergence'),
     path('trade-value-ranking/', views.trade_value_ranking_view, name='trade_value_ranking'),
     path('buy-pool/', views.buy_pool_view, name='buy_pool'),
+    path('buy-pool-simulation/', views.buy_pool_simulation_view, name='buy_pool_simulation'),
     path('calc-divergence/', views.calc_divergence_view, name='calc_divergence'),
     path('sector/<str:sector_name>/', views.sector_detail_view, name='sector_detail'),
     path('api/stock/<int:stock_id>/signals/', views.sector_detail_ajax, name='sector_detail_ajax'),
