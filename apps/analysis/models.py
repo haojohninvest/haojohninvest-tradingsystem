@@ -104,3 +104,50 @@ class BuyPool(models.Model):
 
     def __str__(self):
         return f"{self.stock_code} {self.stock_name} - {self.date} [{self.scenario}]"
+
+
+class BuyPoolSimulation(models.Model):
+    """模擬漲幅後的選股掃描結果 (Simulation of Stock Pick Strategy v0519)"""
+    stock = models.ForeignKey(Stock, on_delete=models.CASCADE, related_name='buy_pool_sim_entries', verbose_name='股票', null=True, blank=True)
+    date = models.DateField('買入日期')
+    stock_code = models.CharField('股票代號', max_length=10)
+    stock_name = models.CharField('股票名稱', max_length=50, blank=True)
+    close = models.DecimalField('收盤價(模擬)', max_digits=10, decimal_places=2, null=True, blank=True)
+    volume = models.BigIntegerField('成交量', null=True, blank=True)
+    turnover = models.DecimalField('成交金額(億)', max_digits=12, decimal_places=2, null=True, blank=True)
+    ema20 = models.DecimalField('EMA20(模擬)', max_digits=10, decimal_places=2, null=True, blank=True)
+    ema60 = models.DecimalField('EMA60(模擬)', max_digits=10, decimal_places=2, null=True, blank=True)
+    ema120 = models.DecimalField('EMA120(模擬)', max_digits=10, decimal_places=2, null=True, blank=True)
+    signal_type = models.CharField('訊號類型', max_length=10)
+    entry_date = models.DateField('入池日期')
+    d = models.IntegerField('D值(入池天數)')
+    r20 = models.DecimalField('R20', max_digits=8, decimal_places=3, null=True, blank=True)
+    r20_hole = models.DecimalField('R20_hole', max_digits=8, decimal_places=3, null=True, blank=True)
+    scenario = models.CharField('情境', max_length=1)
+    market_cap = models.BigIntegerField('市值(元)', null=True, blank=True)
+
+    simulation_pct = models.DecimalField('模擬漲幅(%)', max_digits=5, decimal_places=2)
+    simulated_date = models.DateField('模擬日期')
+
+    ema20_cross_date = models.DateField('EMA20穿越日(R欄)', null=True, blank=True)
+    first_r_date = models.BooleanField('首次R日期(S欄)', default=False)
+
+    sell_date = models.DateField('賣出日期', null=True, blank=True)
+    return_rate = models.DecimalField('報酬率(%)', max_digits=8, decimal_places=2, null=True, blank=True)
+    max_drawdown = models.DecimalField('最大回撤(%)', max_digits=8, decimal_places=2, null=True, blank=True)
+    max_return_rate = models.DecimalField('最高報酬率(%)', max_digits=8, decimal_places=2, null=True, blank=True)
+
+    scan_run_id = models.CharField('掃描批次ID', max_length=50, blank=True, help_text='用於辨識同一次模擬 run')
+
+    class Meta:
+        verbose_name = '模擬選股掃描結果'
+        verbose_name_plural = '模擬選股掃描結果'
+        indexes = [
+            models.Index(fields=['date']),
+            models.Index(fields=['stock_code']),
+            models.Index(fields=['simulated_date']),
+        ]
+        unique_together = ('date', 'stock_code', 'scan_run_id')
+
+    def __str__(self):
+        return f"[SIM] {self.stock_code} {self.stock_name} - {self.date} (+{self.simulation_pct}%)"

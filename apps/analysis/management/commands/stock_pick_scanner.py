@@ -89,7 +89,7 @@ class Command(BaseCommand):
             '--surge_threshold',
             type=float,
             default=self.DEFAULT_SURGE_THRESHOLD,
-            help=f'長紅門檻% (預設: {self.DEFAULT_SURGE_THRESHOLD})'
+            help=f'長紅門檻%% (預設: {self.DEFAULT_SURGE_THRESHOLD})'
         )
         parser.add_argument(
             '--r20_threshold',
