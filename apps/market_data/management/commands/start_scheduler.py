@@ -1,6 +1,6 @@
 """
 Scheduler Service for Haoqiang Capital Trading System
-Automatically executes daily tasks (every day at 14:30)
+Automatically executes daily tasks (every day at 14:30 and 15:00)
 """
 from django.core.management.base import BaseCommand
 from django_apscheduler.jobstores import DjangoJobStore
@@ -71,6 +71,16 @@ class Command(BaseCommand):
             replace_existing=True
         )
         logger.info('[OK] Added daily task (14:30)')
+        
+        # Daily task (every day 15:00)
+        scheduler.add_job(
+            run_daily_tasks,
+            trigger=CronTrigger(hour='15', minute='00'),
+            id='daily_crawl_and_calc_1500',
+            name='Daily Stock Crawl & Calculation (15:00)',
+            replace_existing=True
+        )
+        logger.info('[OK] Added daily task (15:00)')
         
         logger.info('')
         logger.info('=== Scheduler started ===')
