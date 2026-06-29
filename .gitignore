@@ -10,3 +10,15 @@ logs/
 *.swp
 .DS_Store
 Thumbs.db
+*.xlsx
+*.csv
+*.pkl
+*.xls
+.env.prod
+venv/
+staticfiles/
+output/
+.backfill_progress.json
+backfill*.log
+scripts/
+股本.xlsx
